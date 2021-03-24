@@ -96,7 +96,7 @@ class DyRep(nn.Module):
             v_surv = 0.0
             for k in torch.tensor([0,1], device="cuda:0"):
                 u_surv = u_surv + self.calculate_intensity_rates(torch.cat(sample_size*[u_curr.view(-1)]), v_others, torch.cat(sample_size*[k.view(-1)]))
-                v_surv = u_surv + self.calculate_intensity_rates(torch.cat(sample_size*[v_curr.view(-1)]), u_others, torch.cat(sample_size*[k.view(-1)]))
+                v_surv = v_surv + self.calculate_intensity_rates(torch.cat(sample_size*[v_curr.view(-1)]), u_others, torch.cat(sample_size*[k.view(-1)]))
 
             L_surv = L_surv + (u_surv + v_surv) / sample_size
         
