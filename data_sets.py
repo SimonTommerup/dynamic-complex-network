@@ -57,7 +57,6 @@ class MITDataSet(Dataset):
     def unique(self, nodes):
         return set(nodes)
 
-
 if __name__ == "__main__":
     wikipedia = SnapDataSet(SNAP_WIKIPEDIA)
     print(wikipedia[0])
