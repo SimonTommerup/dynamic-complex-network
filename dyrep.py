@@ -249,7 +249,7 @@ def train(model, data, loss_fun=negative_log_likelihood, epochs=1, batch_size=20
             print(f"Batch loss: {batch_rloss[batch_idx]}")
         # end for batch
         
-        epoch_rloss[epoch_idx] = torch.sum(batch_rloss)
+        epoch_rloss[epoch_idx] = torch.sum(batch_rloss) / len(data_loader)
         print(f"Epoch {epoch_idx+1} time:", time.time()-epoch_t0)
         print(f"Epoch loss: {epoch_rloss[batch_idx]}")
     #end for epoch
