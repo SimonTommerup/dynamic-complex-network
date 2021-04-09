@@ -143,8 +143,14 @@ class DyRep(nn.Module):
             
                 if n2_n_neighbors > 0:
                     h_n2 = self.W_h(z_previous[n2_neighbors]).view(n2_n_neighbors, self.n_hidden) # views and all
+                    save_0 = self.S[n2, n2_neighbors].clone()
                     q_n2_i = torch.exp(self.S[n2, n2_neighbors].clone()).view(n2_n_neighbors, 1)
+                    save_1 = q_n2_i.clone()
                     q_n2_i = q_n2_i / (torch.sum(q_n2_i) + 1e-7)
+
+                    if not torch.all(q_n2_i.isfinite()):
+                        print("NaN values in q_n2_i")
+
                     hstruct[k, :] = torch.max(torch.sigmoid(q_n2_i * h_n2),dim=0)[0].view(1, self.n_hidden)
                 
                 self.last_event_time[n1] = t_curr
@@ -165,10 +171,12 @@ class DyRep(nn.Module):
         self.intensity_rates[k,v,u] = lambda_uvk
 
     def update_a_and_s(self, u, v, k):
-        A_previous = self.A.clone()
-        self.A[u[k < 1], v[k < 1]] = self.A[v[k < 1], u[k < 1]] = 1 # update A
         
         for u_curr, v_curr, k_curr in zip(u,v,k):
+            A_previous = self.A.clone()
+            if k_curr < 1:
+                self.A[u_curr, v_curr] = self.A[v_curr, u_curr] = 1 # update A // better
+
             communication_event = k_curr > 0
             association_event = k_curr < 1
             association_exists = self.A[u_curr, v_curr].clone() > 0
@@ -178,23 +186,40 @@ class DyRep(nn.Module):
 
             for j in [u_curr, v_curr]: # update current nodes in turn
                 i = [node for node in [u_curr, v_curr] if node != j][0] # set as other node in current event
-                b = 1 / torch.sum(self.A[j,:].clone() > 0)
+                
+                n_new_neighbors = torch.sum(self.A[j,:].clone() > 0)
+                if n_new_neighbors == 0:
+                    b = 0
+                else:
+                    b = 1 / (n_new_neighbors + 1e-7)
+
                 y = self.S[j, :].clone()
 
                 if communication_event and association_exists:
                     y[i] = b + self.intensity_rates[k_curr, j, i].clone()
                 
                 elif association_event:
-                    b_prime = 1 / torch.sum(A_previous[j,:]>0)
-                    x = b_prime - b
+                    n_prev_neighbors = torch.sum(A_previous[j, :] > 0)
+
+                    if n_prev_neighbors == 0:
+                        b_prime = 0
+                    else:
+                        b_prime = 1 / (n_prev_neighbors + 1e-7)
+                    
+                    x = b_prime - b # greater than or equal to zero
                     
                     w = (y != 0)
                     w[i] = False
-
+                    clam = self.intensity_rates[k_curr, j, i].clone()
+                    cy = y.clone()
                     y[i] = b + self.intensity_rates[k_curr, j, i].clone()
                     y[w] = y[w].clone() - x
                 
+                
                 y_normalized = y / (torch.sum(y) + 1e-7) # normalize y
+                # the values can get negative if x > y[w], 
+                # but paper says that any value in S is [0,1]
+                #y_normalized = torch.clamp(y_normalized, min=0, max=1)
                 self.S[j,:] = y_normalized # Update S
     
     def forward(self, data):
@@ -208,6 +233,41 @@ class DyRep(nn.Module):
         self.update_a_and_s(u, v, k)
 
         return lambda_uvk, L_surv
+    
+    def predict(self, data):
+        i = torch.arange(0, self.n_nodes).to(self.device)
+        hits10 = 0.0
+        u, v, t, k = data[0], data[1], data[2], data[3]
+
+        survival = torch.zeros(len(u))
+        for idx, (u_cur, i_cur, t_cur) in enumerate(zip(u, i, t)):
+            survival[idx] = torch.sum(self.survival_loss(u_cur.view(-1), i_cur.view(-1), t_cur.view(-1), self.monte_carlo_sample_size))
+
+        idx = 0
+        for i_cur, u_cur, v_cur, t_cur, k_cur in zip(i,u,v,t,k):
+            u_cat = utils.ncat(self.n_nodes, u_cur)
+            t_cat = utils.ncat(self.n_nodes, t_cur)
+            k_cat = utils.ncat(self.n_nodes, k_cur)
+
+            # intensity of current u with all other nodes
+            cur_intensity = self.calculate_intensity_rates(u_cat, i, k_cat)
+
+            # survival for current u and i
+            cur_survival = survival[idx]
+            idx += 1
+
+            density = cur_intensity * torch.exp(-cur_survival)
+            descending_density = torch.argsort(density, descending=True)
+
+            if v_cur in descending_density[:10]:
+                hits10 += 1.0
+
+        # update model after prediction on batch
+        lambda_uvk = self.calculate_intensity_rates(u, v, k)
+        self.update_embeddings(u, v, t)
+        self.update_intensity_rates(lambda_uvk, u, v, k)
+        self.update_a_and_s(u, v, k)
+        return hits10
 
 
 def negative_log_likelihood(intensity_rate, survival_term):
@@ -215,8 +275,8 @@ def negative_log_likelihood(intensity_rate, survival_term):
         component_1 = torch.sum(survival_term)
         return component_0 + component_1
 
-def train(model, data, loss_fun=negative_log_likelihood, epochs=1, batch_size=200, save_state_dict=True):
-    data_loader = torch.utils.data.DataLoader(data, batch_size=batch_size)
+def train(model, train_data, test_data, loss_fun=negative_log_likelihood, epochs=1, batch_size=200, save_state_dict=True):
+    data_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size)
     optimizer = torch.optim.Adam(model.parameters(), lr=2e-4)
 
     model.train() 
@@ -227,6 +287,8 @@ def train(model, data, loss_fun=negative_log_likelihood, epochs=1, batch_size=20
 
         batch_rloss = torch.zeros(len(data_loader))
         for batch_idx, batch in enumerate(data_loader):
+            if batch_idx + 1 < 15:
+                continue
             print(f"Batch {batch_idx+1} of {len(data_loader)}")
             
             batch_t0 = time.time()
@@ -248,14 +310,38 @@ def train(model, data, loss_fun=negative_log_likelihood, epochs=1, batch_size=20
             print(f"Batch {batch_idx+1} time:", time.time()-batch_t0)
             print(f"Batch loss: {batch_rloss[batch_idx]}")
         # end for batch
-        
+        if save_state_dict:
+            #time_stamp = time.time()
+            torch.save(model.state_dict(), "data/state_dicts/model-state-dict.pth")
+
+        if test_data is not None:
+            test(model, test_data, batch_size=200)
+
         epoch_rloss[epoch_idx] = torch.sum(batch_rloss) / len(data_loader)
         print(f"Epoch {epoch_idx+1} time:", time.time()-epoch_t0)
         print(f"Epoch loss: {epoch_rloss[batch_idx]}")
     #end for epoch
-
-    time_stamp = time.time()
-    torch.save(model.state_dict(), "data/state_dicts/model"+f"{time_stamp}")
-
     return model
+
+def test(model, data, batch_size):
+    model.eval()
+
+    with torch.no_grad():
+        data_loader = torch.utils.data.DataLoader(data, batch_size=batch_size)
+        hits10_total = 0.0
+        for idx, batch in enumerate(data_loader):
+            starttime = time.time()
+            
+            batch_data = [elem.to(model.device) for elem in batch] # CUDA
+
+            hits10 = model.predict(batch_data)
+            hits10_rate = hits10 / len(batch)
+            hits10_total += hits10
+
+            print(f"Batch {idx} HITS@10 rate: {hits10_rate}")
+            print(f"Elapsed time: {time.time() - starttime}")
+    
+    print(f"HITS@10 rate for test data: {hits10_total / len(data)}")
+    return hits10_total / len(data)
+
 
