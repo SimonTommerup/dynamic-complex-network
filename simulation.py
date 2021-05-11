@@ -76,29 +76,40 @@ ax0 = ax[0]
 ax1 = ax[1]
 ax0.set_xlim(-100,100)
 ax0.set_ylim(-100,100)
-ax1.set_xlim(0, 100)
-ax1.set_ylim(0,100)
+ax1.set_xlim(0, 200)
+ax1.set_ylim(0,200)
 
 
 points, = ax0.plot([], [], "bo", ms=6)
 lines, = ax1.plot([],[])
+
+dist_arr = []
+
+x = np.linspace(0,200)
+
 
 def init():
     points.set_data([],[])
     lines.set_data([],[])
     return points, lines
 
-def animate(i):
-    z = z0 + v0*i + 0.5*a0*i**2
+def animate(i, x, dist_arr):
+    z = z0 + v0*x[i] + 0.5*a0*x[i]**2
     points.set_data(z[:,0], z[:,1])
-    lines.set_data(np.arange(0, i, 1), np.arange(0,i,1))
+
+    H = pdist(z, metric="euclidean")
+    
+    dist_arr.append(H[0])
+    #print(dist_arr)
+
+    lines.set_data(x[0:i], dist_arr[:i])
     return points, lines
 
-anim = animation.FuncAnimation(fig, animate, init_func=init, frames=200, interval=100, blit=True)
-#anim
+anim = animation.FuncAnimation(fig, animate, fargs=[x, dist_arr], init_func=init, frames=len(x), interval=50, blit=True)
+anim
 #print(dir(anim))
 #HTML(anim.to_html5_video())
-anim
+#anim
 #HTML(anim.to_jshtml())
 #anim.save("subplot_points.mp4", fps=5, extra_args=["-vcodec", "libx264"])
 
