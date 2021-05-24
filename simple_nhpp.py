@@ -172,7 +172,6 @@ def nhpp(nodespace, time, upperbounds, beta=BETA_VALUE):
     not_exceed_count = 0
     iteration = 0
 
-    # run until stop
     while not stop:
         iteration += 1
         
@@ -236,7 +235,6 @@ def nhpp_global_bound(ns, time, beta=BETA_VALUE):
 
 
 # %%
-
 r, m = rmon(ns)
 time2monoticity = ttomon(t, r, m)
 lambda_upper = upperbounds(ns, t, r, time2monoticity)
@@ -267,4 +265,35 @@ plt.show()
 
 # %%
 print(len(event_times))
+# %%
+
+print(len(t))
+
+#def intensity(nodespace, time):
+
+# %%
+
+t = np.linspace(0,15,100)
+
+t0 = t[0:(len(t)-1)]
+t1 = t[1:]
+
+dt = np.mean(t1 - t0)
+
+def integrate_intensity(nodespace, time, dt, beta=BETA_VALUE):
+    rsum = 0
+    for t in time[1:]:
+        zt = ns.step(t)
+        d = pdist(zt, metric="euclidean")
+        lt = np.exp(beta - d)
+        rsum += dt * lt
+    return rsum
+
+intens = integrate_intensity(ns, t, dt)
+print(intens)
+
+
+# %%
+a = [1,2,3,4]
+print(a[1:])
 # %%
