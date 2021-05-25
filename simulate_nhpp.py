@@ -25,7 +25,8 @@ print(ns.z0)
 # %%
 # Objective: Simulate n(n-1)/2 nhpp at a time
 
-def rootmat(ns):
+# Find roots
+def root_matrix(ns):
     n_points = len(ns.z0)
     ind = np.triu_indices(n_points, k=1)
     rmat = np.zeros(shape=(n_points, n_points), dtype=object)
@@ -51,11 +52,45 @@ def rootmat(ns):
         r = np.sort(r)
         
         rmat[u, v] = r
-
     return rmat
 
+rmat = root_matrix(ns)
+print(rmat)
+# %%
+## Monotonicity
+# 
+def monotonicity_mat(ns, root_matrix):
+    beta = ns.beta
+    n_points = len(ns.z0)
+    ind = np.triu_indices(n_points, k=1)
+    mmat = np.zeros(shape=(n_points, n_points), dtype=object)
 
-roots = rootmat(ns)
+    for u, v in zip(ind[0], ind[1]):
+        i = 0
+        roots = root_matrix[u,v]
+        time_points = [roots[0] - 0.5] # t to get sign of dLambda(t)/dt before first root
+        while i < len(roots)-1:
+            t = roots[i] + (roots[i+1] - roots[i]) / 2 # t's to get sign of dLambda(t)/dt between roots
+            time_points.append(t)
+            i += 1 
+        time_points.append(roots[-1] + 0.5) # t to get sign of dLambda(t)/dt after last root
+
+        monotonicity = []
+        for t in time_points:
+            val = ns.lambda_ddt(t, u, v) # value of derivative of lambda(t,u,v) at t
+
+            if val < 0:
+                monotonicity.append("dec")
+            elif val > 0:
+                monotonicity.append("inc")
+
+        mmat[u,v] = np.array(monotonicity)
+
+    return mmat
+
+mmat = monotonicity_mat(ns, rmat)
 
 
+# %%
+print(mmat)
 # %%
