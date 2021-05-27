@@ -177,7 +177,6 @@ def nhpp(ns, u, v, time, upperbounds):
             u1 = np.random.uniform(0,1)
             x = -1 / upperbounds[interval] * np.log(u1)
 
-        var = t+x
         if (t + x) < time[interval + 1]:
             exceed_interval = False
 
@@ -217,9 +216,12 @@ def nhpp_mat(ns, time, root_matrix, monotonicity_matrix):
         r = root_matrix[u,v]
         m = monotonicity_matrix[u,v]
 
-        t2m = time_to_monotonicity(time, roots=r, monotonicity=m) # map time to monotonicity
-        ubl = upperbounds(ns, u, v, time, roots=r, time_to_monotonicity=t2m) # find upperbounds for all time intervals
-        nhpp_sim = nhpp(ns, u, v, time=time, upperbounds=ubl) # simulate nhpp
+        # map time to monotonicity
+        t2m = time_to_monotonicity(time, roots=r, monotonicity=m) 
+        # find upperbounds for all time intervals
+        ubl = upperbounds(ns, u, v, time, roots=r, time_to_monotonicity=t2m) 
+        # simulate nhpp
+        nhpp_sim = nhpp(ns, u, v, time=time, upperbounds=ubl) 
 
         nhpp_mat[u,v] = nhpp_sim
     
