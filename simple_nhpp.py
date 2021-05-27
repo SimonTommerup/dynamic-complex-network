@@ -16,21 +16,21 @@ rad = 0
 
 # 1.1.1 Positions
 z0_u = ns.init_points(1, [1,1], rad)
-z0_v = ns.init_points(1, [12,1], rad)
+z0_v = ns.init_points(1, [2,1], rad)
 z0 = np.concatenate((z0_u, z0_v))
 
 # 1.1.2 Velocities
-v0_u = ns.init_velocity(1, 3, 0)
-v0_v = ns.init_velocity(1, -3, 0)
+v0_u = ns.init_velocity(1, 4, 0)
+v0_v = ns.init_velocity(1, 3, 0) # -3
 v0 = np.concatenate((v0_u, v0_v))
 
 # 1.1.3 Accelerations
-a0_u = ns.init_acceleration(1, -0.5, 0)
-a0_v = ns.init_acceleration(1, 0.5, 0)
+a0_u = ns.init_acceleration(1, 0, 0) # -0.5
+a0_v = ns.init_acceleration(1, 0, 0)
 a0 = np.concatenate((a0_u,a0_v))
 
 # 1.1.4 Init
-ns.init_cond(z0, v0, a0)
+ns.init_conditions(z0, v0, a0)
 
 
 # %%
@@ -58,7 +58,8 @@ def r_int(nodespace):
     d = p1*(zx[0]-zx[1]) + p3*(zy[0]-zy[1])
 
     r = np.roots([a,b,c,d])
-    r = r[np.isreal(r)]
+    r = r[np.isreal(r)] # only real solutions
+    r = r[r >= 0] # only solutions on positive time axis
     r = np.sort(r)
     return r
 

@@ -16,6 +16,7 @@ class SnapDataSet(Dataset):
 
         self.unique_sources = self.unique(self.sources)
         self.unique_destinations = self.unique(self.destinations)
+        self.n_nodes = len(self.unique(self.unique_sources | self.unique_destinations))
 
     def __len__(self):
         return len(self.sources)
@@ -23,9 +24,9 @@ class SnapDataSet(Dataset):
     def __getitem__(self, index):
         source = self.sources[index]
         destination = self.destinations[index]
-        timestamp = self.timestamps[index]
+        time = self.timestamps[index]
         
-        return (source, destination, timestamp)
+        return source, destination, time
 
     def unique(self, nodes):
         return set(nodes)

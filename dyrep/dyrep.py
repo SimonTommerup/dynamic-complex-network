@@ -10,20 +10,26 @@ class DyRep(nn.Module):
     def __init__(self, 
             dataset, 
             initial_associations, 
-            n_hidden=32, 
-            monte_carlo_sample_size=20,
+            n_hidden=32,
+            n_event_types=2,
+            monte_carlo_sample_size=10,
             device="cuda:0"):
         super().__init__()
         
         self.device = device
 
-        self.n_event_types = 2 # association, communication
+        self.n_event_types = n_event_types # association, communication
         self.n_nodes = dataset.n_nodes
         self.n_hidden = n_hidden
 
-        self.A = self.initialize_A(initial_associations)
-        self.S = self.initialize_S()
-        self.intensity_rates = self.initialize_intensity_rates()
+        A = self.initialize_A(initial_associations)
+        self.register_buffer("A", A)
+
+        S = self.initialize_S()
+        self.register_buffer("S", S)
+
+        intensity_rates = self.initialize_intensity_rates()
+        self.register_buffer("intensity_rates", intensity_rates)
 
         self.monte_carlo_sample_size = monte_carlo_sample_size
 
@@ -35,8 +41,11 @@ class DyRep(nn.Module):
 
         self.omega = nn.ModuleList([nn.Linear(2*n_hidden, 1) for _ in range(self.n_event_types)])
         
-        self.embeddings = torch.rand(size=(self.n_nodes, self.n_hidden), device=self.device)
-        self.last_event_time = torch.zeros(size=(self.n_nodes, 1), device=self.device)
+        embeddings = torch.rand(size=(self.n_nodes, self.n_hidden), device=self.device)
+        self.register_buffer("embeddings", embeddings)
+
+        last_event_time = torch.zeros(size=(self.n_nodes, 1), device=self.device)
+        self.register_buffer("last_event_time", last_event_time)
 
     def initialize_A(self, dataframe):
         A = torch.zeros(size=(self.n_nodes, self.n_nodes), device=self.device)
@@ -105,7 +114,7 @@ class DyRep(nn.Module):
     def n_concatenate(self, n, tensor):
         return torch.cat(n*[tensor.view(-1)])
 
-    def survival_loss(self, u, v, t, sample_size):
+    def dyrep_survival(self, u, v, t, sample_size):
         L_surv = 0.0
         for u_curr, v_curr, t_curr in zip(u,v,t):
             v_others = self.n_random_nodes_not_in_current_nodes(sample_size, [u_curr, v_curr])
@@ -125,6 +134,39 @@ class DyRep(nn.Module):
         # end for curr
         return L_surv
 
+    def poisson_survival(self, u, v, t, sample_size):
+        len_batch = u.shape[0]
+        surv_batch = torch.zeros(size=(len_batch,1))
+        node_list = torch.unique(torch.cat((u,v)))
+        idx = 0
+        for u_cur, v_cur, t_cur in zip(u,v,t):
+            surv_cur = 0.0
+            u_surv = 0.0
+            v_surv = 0.0
+            i = 0
+
+            while i < sample_size:
+                u_other = self.n_random_nodes_not_in_current_nodes(1, [u_cur, v_cur])
+                v_other = self.n_random_nodes_not_in_current_nodes(1, [u_cur, v_cur])
+                #u_other = random.choice(node_list)
+                #v_other = random.choice(node_list)
+
+                if u_other in [u_cur, v_cur] or v_other in [u_cur, v_cur]:
+                    continue
+                
+                i += 1 
+                
+                for k in torch.tensor([0,1], device="cuda:0"):
+                    # multiply by last time (t2-t1)?
+                    u_surv += self.calculate_intensity_rates(u_cur.view(-1), v_other.view(-1), k.view(-1))
+                    v_surv += self.calculate_intensity_rates(v_cur.view(-1), u_other.view(-1), k.view(-1)) 
+
+            surv_cur += (u_surv + v_surv) / sample_size
+            surv_batch[idx] = surv_cur
+            idx += 1
+
+        return surv_batch
+        
     def update_embeddings(self, u, v, t):
         z_accumulated = []
         for iteration, (u_it, v_it, t_it) in enumerate(zip(u,v,t)):
@@ -147,10 +189,6 @@ class DyRep(nn.Module):
                     q_n2_i = torch.exp(self.S[n2, n2_neighbors].clone()).view(n2_n_neighbors, 1)
                     save_1 = q_n2_i.clone()
                     q_n2_i = q_n2_i / (torch.sum(q_n2_i) + 1e-7)
-
-                    if not torch.all(q_n2_i.isfinite()):
-                        print("NaN values in q_n2_i")
-
                     hstruct[k, :] = torch.max(torch.sigmoid(q_n2_i * h_n2),dim=0)[0].view(1, self.n_hidden)
                 
                 self.last_event_time[n1] = t_curr
@@ -171,11 +209,10 @@ class DyRep(nn.Module):
         self.intensity_rates[k,v,u] = lambda_uvk
 
     def update_a_and_s(self, u, v, k):
-        
         for u_curr, v_curr, k_curr in zip(u,v,k):
             A_previous = self.A.clone()
             if k_curr < 1:
-                self.A[u_curr, v_curr] = self.A[v_curr, u_curr] = 1 # update A // better
+                self.A[u_curr, v_curr] = self.A[v_curr, u_curr] = 1 # update A 
 
             communication_event = k_curr > 0
             association_event = k_curr < 1
@@ -210,70 +247,33 @@ class DyRep(nn.Module):
                     
                     w = (y != 0)
                     w[i] = False
-                    clam = self.intensity_rates[k_curr, j, i].clone()
-                    cy = y.clone()
                     y[i] = b + self.intensity_rates[k_curr, j, i].clone()
                     y[w] = y[w].clone() - x
                 
                 
                 y_normalized = y / (torch.sum(y) + 1e-7) # normalize y
+                
                 # the values can get negative if x > y[w], 
-                # but paper says that any value in S is [0,1]
+                # but DyReP paper says that any value in S is [0,1]
                 #y_normalized = torch.clamp(y_normalized, min=0, max=1)
                 self.S[j,:] = y_normalized # Update S
     
     def forward(self, data):
         u, v, t, k = data
         
-        lambda_uvk = self.calculate_intensity_rates(u, v, k)
-        L_surv = self.survival_loss(u, v, t, self.monte_carlo_sample_size)
+        output_intensity = self.calculate_intensity_rates(u, v, k)
+        output_survival = self.poisson_survival(u, v, t, self.monte_carlo_sample_size)
 
         self.update_embeddings(u, v, t)
-        self.update_intensity_rates(lambda_uvk, u, v, k)
+        self.update_intensity_rates(output_intensity, u, v, k)
         self.update_a_and_s(u, v, k)
 
-        return lambda_uvk, L_surv
+        return output_intensity, output_survival
     
-    def predict(self, data):
-        i = torch.arange(0, self.n_nodes).to(self.device)
-        hits10 = 0.0
-        u, v, t, k = data[0], data[1], data[2], data[3]
-
-        survival = torch.zeros(len(u))
-        for idx, (u_cur, i_cur, t_cur) in enumerate(zip(u, i, t)):
-            survival[idx] = torch.sum(self.survival_loss(u_cur.view(-1), i_cur.view(-1), t_cur.view(-1), self.monte_carlo_sample_size))
-
-        idx = 0
-        for i_cur, u_cur, v_cur, t_cur, k_cur in zip(i,u,v,t,k):
-            u_cat = utils.ncat(self.n_nodes, u_cur)
-            t_cat = utils.ncat(self.n_nodes, t_cur)
-            k_cat = utils.ncat(self.n_nodes, k_cur)
-
-            # intensity of current u with all other nodes
-            cur_intensity = self.calculate_intensity_rates(u_cat, i, k_cat)
-
-            # survival for current u and i
-            cur_survival = survival[idx]
-            idx += 1
-
-            density = cur_intensity * torch.exp(-cur_survival)
-            descending_density = torch.argsort(density, descending=True)
-
-            if v_cur in descending_density[:10]:
-                hits10 += 1.0
-
-        # update model after prediction on batch
-        lambda_uvk = self.calculate_intensity_rates(u, v, k)
-        self.update_embeddings(u, v, t)
-        self.update_intensity_rates(lambda_uvk, u, v, k)
-        self.update_a_and_s(u, v, k)
-        return hits10
-
-
 def negative_log_likelihood(intensity_rate, survival_term):
-        component_0 = -torch.sum(torch.log(intensity_rate))
+        component_0 = torch.sum(torch.log(intensity_rate))
         component_1 = torch.sum(survival_term)
-        return component_0 + component_1
+        return -component_0 + component_1
 
 def train(model, train_data, test_data, loss_fun=negative_log_likelihood, epochs=1, batch_size=200, save_state_dict=True):
     data_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size)
@@ -287,8 +287,6 @@ def train(model, train_data, test_data, loss_fun=negative_log_likelihood, epochs
 
         batch_rloss = torch.zeros(len(data_loader))
         for batch_idx, batch in enumerate(data_loader):
-            if batch_idx + 1 < 15:
-                continue
             print(f"Batch {batch_idx+1} of {len(data_loader)}")
             
             batch_t0 = time.time()
@@ -297,51 +295,33 @@ def train(model, train_data, test_data, loss_fun=negative_log_likelihood, epochs
             optimizer.zero_grad() 
 
             lambda_uvk, L_surv = model(batch)  
-            loss = loss_fun(lambda_uvk, L_surv) / batch_size
+            loss = loss_fun(lambda_uvk, L_surv)
             
             loss.backward() 
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 100)
+            #nn.utils.clip_grad_value_(model.parameters(), 100)
             optimizer.step()
 
             batch_rloss[batch_idx] = loss.detach() 
 
+            #torch.save(model.state_dict(), f"data/state_dicts/model-state-dict-batch{batch_idx+1}.pth")
+
             model.embeddings = model.embeddings.detach()  # reset the computational graph, no backprop over previous embedding
             model.S = model.S.detach()
+
             
             print(f"Batch {batch_idx+1} time:", time.time()-batch_t0)
             print(f"Batch loss: {batch_rloss[batch_idx]}")
         # end for batch
-        if save_state_dict:
-            #time_stamp = time.time()
-            torch.save(model.state_dict(), "data/state_dicts/model-state-dict.pth")
 
-        if test_data is not None:
-            test(model, test_data, batch_size=200)
+        if save_state_dict:
+            torch.save(model.state_dict(), "data/state_dicts/with-time-loss-model-state-dict.pth")
+
+        # if test_data is not None:
+        #     test(model, test_data, batch_size=200)
 
         epoch_rloss[epoch_idx] = torch.sum(batch_rloss) / len(data_loader)
         print(f"Epoch {epoch_idx+1} time:", time.time()-epoch_t0)
-        print(f"Epoch loss: {epoch_rloss[batch_idx]}")
+        print(f"Epoch loss: {epoch_rloss[epoch_idx]}")
     #end for epoch
     return model
-
-def test(model, data, batch_size):
-    model.eval()
-
-    with torch.no_grad():
-        data_loader = torch.utils.data.DataLoader(data, batch_size=batch_size)
-        hits10_total = 0.0
-        for idx, batch in enumerate(data_loader):
-            starttime = time.time()
-            
-            batch_data = [elem.to(model.device) for elem in batch] # CUDA
-
-            hits10 = model.predict(batch_data)
-            hits10_rate = hits10 / len(batch)
-            hits10_total += hits10
-
-            print(f"Batch {idx} HITS@10 rate: {hits10_rate}")
-            print(f"Elapsed time: {time.time() - starttime}")
-    
-    print(f"HITS@10 rate for test data: {hits10_total / len(data)}")
-    return hits10_total / len(data)
-
-
