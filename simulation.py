@@ -58,9 +58,7 @@ top_line, = axtop.plot([],[])
 lines = []
 for ax in axes:
     line, = ax.plot([], [])
-    #line, = ax.plot([0,np.pi],[-1,1])
     lines.append(line)
-
 
 def init():
     top_line.set_data([], [])
@@ -69,11 +67,9 @@ def init():
     all_lines = [top_line] + lines
     return all_lines
 
-
 x = np.linspace(0, np.pi, 20)
 y = np.sin(x)
 
-# animation function.  This is called sequentially
 def update(i, x, y, top_line, lines):
     top_line.set_data(x[:i],y[:i])
     for line in lines:
@@ -87,7 +83,6 @@ anim = animation.FuncAnimation(fig, update, fargs=[x, y, top_line, lines], init_
 anim.save('animation_frame.mp4', dpi=500, fps=30, extra_args=['-vcodec', 'libx264'])
 anim
 
-#plt.tight_layout() # incompatible with hspace
 #plt.show()
 
 
