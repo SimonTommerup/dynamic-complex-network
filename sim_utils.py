@@ -21,7 +21,7 @@ def sharex_grid(rows, cols, axes):
 def animframe(rows, cols, t, selected_nodes):
     fig = plt.figure(constrained_layout=False)
 
-    outer_grid = gridspec.GridSpec(2,1, height_ratios=[1,2], hspace=0.5)
+    outer_grid = gridspec.GridSpec(2,1, height_ratios=[1,1], hspace=0.5)
     upper_cell = outer_grid[0,0]
     lower_cell = outer_grid[1,0]
 
