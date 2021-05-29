@@ -78,6 +78,11 @@ def time_to_monotonicity(time, roots, monotonicity):
     last_m = False if len(roots) > 1 else True
     ttm = []
 
+    rdist = np.abs(np.diff(roots))
+    dt = np.mean(np.diff(time))
+    if len(rdist) > 0:
+        assert all(rdist > dt), "time_to_monotonicity: Some time interval contains two sign changes."
+
     if len(monotonicity)==0:
         return ttm
         
@@ -110,13 +115,15 @@ def upperbounds(ns, u, v, time, roots, time_to_monotonicity):
             idx += 1
     else:
         while idx < len(time)-1:
+
             if mon[idx] != mon[idx + 1]:
                 lambda_root = ns.lambda_fun(roots[rcount], u, v)
                 max_lambda = lambda_root
 
                 if mon[idx] == "dec":
+                    lambda_cur_t = ns.lambda_fun(time[idx], u, v)
                     lambda_next_t = ns.lambda_fun(time[idx+1], u, v)
-                    max_lambda = np.maximum(lambda_root, lambda_next_t)
+                    max_lambda = np.maximum(lambda_cur_t, lambda_next_t)
 
                 lambda_arr.append(max_lambda)
                 rcount += 1
@@ -187,7 +194,9 @@ def nhpp_mat(ns, time, root_matrix, monotonicity_matrix):
         # map time to monotonicity
         t2m = time_to_monotonicity(time, roots=r, monotonicity=m) 
         # find upperbounds for all time intervals
-        ubl = upperbounds(ns, u, v, time, roots=r, time_to_monotonicity=t2m) 
+        ubl = upperbounds(ns, u, v, time, roots=r, time_to_monotonicity=t2m)
+        if (u==0 and v==7):
+            var=True
         # simulate nhpp
         nhpp_sim = nhpp(ns, u, v, time=time, upperbounds=ubl) 
 
@@ -195,52 +204,51 @@ def nhpp_mat(ns, time, root_matrix, monotonicity_matrix):
     
     return nhpp_mat
 
-
+def get_entry(mat, u, v):
+    assert u != v, "Upper triangular matrix: No diagonal elements."
+    if u > v:
+        u, v = v, u
+    return mat[u, v]
 
 if __name__ == "__main__":
     # Objective: 
     # Simulate N = n(n-1)/2 non-homogeneous Poisson processess (nhpp) at a time
 
-    np.random.seed(1)
+    #np.random.seed(150)
     #np.seterr(all='raise')
 
     ns = NodeSpace()
     n_clusts = 3
     n_points = [7, 7, 7]
-    centers = [[2,-1], [-3,0], [3,3]]
-    radius = [2.1,2.5,1.9]
-    v = [[0,1], [1,0], [0,-1]]
-    a =  [[0,0], [0,0], [0,0]]
+    centers = [[-6,0], [0,6], [8,-6]]
+    radius = [1.5,1.5,1.5]
+    v = [[1,0], [0,-1], [-1,1]]
+    a =  [[0,-0.1], [0.1,0], [0,-0.1]]
 
     z0 = ns.init_clusters(n_clusts, n_points, centers, radius)
     v0, a0 = ns.init_dynamics(n_clusts, n_points, v, a)
     ns.init_conditions(z0, v0, a0)
 
-    #print(ns.z0)
-    
     # find roots
     rmat = root_matrix(ns) 
 
-    # find monotonicity
+    #find monotonicity
     mmat = monotonicity_mat(ns, rmat) 
-
-    t = np.linspace(0, 16)
+    t = np.linspace(0, 15)
 
     # simulate
     nhppmat = nhpp_mat(ns=ns, time=t, root_matrix=rmat, monotonicity_matrix=mmat)
 
-    test_u = 6
-    test_v = 19
+    test_u = 0
+    test_v = 7
 
-    e = nhppmat[test_u,test_v]
+    e = get_entry(nhppmat, test_u,test_v)
     plt.hist(e)
     plt.show()
 
 
-    print("Root at:", rmat[test_u,test_v][0])
+    print("Root at:", get_entry(rmat, test_u,test_v))
 
     lambda_int_0_T = ns.lambda_int_rapprox(t, test_u, test_v)
     print("Expected value (no. events):", lambda_int_0_T)
     print("Actual value (no. events):", len(e))
-
-

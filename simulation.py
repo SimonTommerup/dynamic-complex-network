@@ -4,85 +4,120 @@ import matplotlib.gridspec as gridspec
 plt.rcParams["animation.html"] = "jshtml"
 import matplotlib.animation as animation
 import numpy as np
+import nhpp
+from sim_utils import animframe, set_ax_lim
+from nodespace import NodeSpace
+import time
 
 
-fig = plt.figure(constrained_layout=False)
+selected_nodes = [(0,8), (8, 20), (1, 9), (3,19)]
+fig, axtop, axes = animframe(2,2,np.linspace(0,16), selected_nodes)
 
-outer_grid = gridspec.GridSpec(2,1, height_ratios=[1,2], hspace=0.5)
-upper_cell = outer_grid[0,0]
-lower_cell = outer_grid[1,0]
 
-axtop = fig.add_subplot(upper_cell)
-axtop.set_title("Upper")
-axtop.set_xlim(0,np.pi)
-axtop.set_ylim(-1,1)
-
-rows, cols = 2, 2
-lower_cell_grid = gridspec.GridSpecFromSubplotSpec(rows, cols, lower_cell, hspace=1.25)
-
-axes = []
-for i in range(rows):
-    for j in range(cols):
-        ax = fig.add_subplot(lower_cell_grid[i, j])
-        ax.set_xlim(0,np.pi)
-        ax.set_ylim(-1,1)
-        ax.set_title(f"Plot {i},{j}")
-        axes.append(ax)
-
-anno_opts = dict(xy=(0.5, 0.5), xycoords='axes fraction',
-                 va='center', ha='center', color="red")
-
-def ax_idx(r, c, n_cols):
-    idx = r * n_cols + c
-    return idx 
-
-for r in range(rows):
-    for c in range(cols):
-        ax = axes[ax_idx(r, c, n_cols=cols)]
-        ax.annotate(f"{r,c}", **anno_opts)
-
-def sharex_grid(rows, cols, axes):
-    for c in range(cols):
-        ax0 = axes[ax_idx(0, c, n_cols=cols)]
-        for r in range(1, rows):
-            ax = axes[ax_idx(r, c, n_cols=cols)]
-            ax0.get_shared_x_axes().join(ax0, ax)
-
-            if r < rows-1:
-                ax.set_xticklabels([])
-        ax0.set_xticklabels([])
-    
-sharex_grid(rows, cols, axes)
-
-top_line, = axtop.plot([],[])
+points, = axtop.plot([],[],'bo', ms=6)
 lines = []
 for ax in axes:
-    line, = ax.plot([], [])
+    line, = ax.plot([], [], lw="2")
     lines.append(line)
 
 def init():
-    top_line.set_data([], [])
+    points.set_data([], [])
     for line in lines:
         line.set_data([],[])
-    all_lines = [top_line] + lines
+    all_lines = [points] + lines
     return all_lines
 
-x = np.linspace(0, np.pi, 20)
-y = np.sin(x)
 
-def update(i, x, y, top_line, lines):
-    top_line.set_data(x[:i],y[:i])
-    for line in lines:
-        line.set_data(x[:i], y[:i])
+ns = NodeSpace()
+n_clusts = 3
+n_points = [7, 7, 7]
+centers = [[-6,0], [0,6], [8,-6]]
+radius = [1.5,1.5,1.5]
+v = [[1,0], [0,-1], [-1,1]]
+a =  [[0,-0.1], [0.1,0], [0,-0.1]]
 
-    all_lines = [top_line] + lines
+z0 = ns.init_clusters(n_clusts, n_points, centers, radius)
+v0, a0 = ns.init_dynamics(n_clusts, n_points, v, a)
+ns.init_conditions(z0, v0, a0)
+
+
+t = np.linspace(0, 15)
+y = np.sin(t)
+
+# %%
+intensities = []
+for (u,v) in selected_nodes:
+    intensity = []
+    for t_i in t:
+        intensity.append(ns.lambda_fun(t_i, u, v))
+    
+    intensity = np.array(intensity)
+    intensities.append(intensity)
+    
+intensities = np.array(intensities)
+
+#%%
+rmat = nhpp.root_matrix(ns) 
+mmat = nhpp.monotonicity_mat(ns, rmat)
+
+print("Simulating events...")
+t0 = time.time()
+nhppmat = nhpp.nhpp_mat(ns=ns, time=t, root_matrix=rmat, monotonicity_matrix=mmat)
+print("Elapsed simulation time: ", time.time() - t0)
+
+set_ax_lim(axtop, xlim=[-10,10], ylim=[-10,10])
+for i, ax in enumerate(axes):
+    ymax = np.max(intensities[i])
+    set_ax_lim(ax, xlim=[t[0], t[-1]], ylim=[0,ymax])
+    
+    # draw event times
+    cur_nodes = selected_nodes[i]
+    cur_events = nhppmat(cur_nodes[0], cur_nodes[1])
+    ax.vlines(x=cur_events, ymin=0, ymax=ymax, color="green", linestyles="solid", alpha=0.25)
+
+
+
+# draw event time lines
+for (u,v), ax in zip(selected_nodes, axes):
+    cur_events = nhppmat(u, v)
+
+# %%
+def update(i, t, intensities, points, lines, nodes):
+
+    # points in latent space
+    z = ns.step(t[i])
+    points.set_data(z[:,0],z[:,1])
+
+    # intensity rates with event times for selected nodes
+    for idx, line  in enumerate(lines):
+        line.set_data(t[:i], intensities[idx][:i])
+
+    all_lines = [points] + lines
 
     return all_lines
 
-anim = animation.FuncAnimation(fig, update, fargs=[x, y, top_line, lines], init_func=init,frames=20,interval=200, blit=True)
+anim = animation.FuncAnimation(fig, update, fargs=[t, intensities, points, lines, selected_nodes], init_func=init,frames=50,interval=200, blit=True)
 anim.save('animation_frame.mp4', dpi=500, fps=30, extra_args=['-vcodec', 'libx264'])
 anim
 
-#plt.show()
+# %%
 
+nodes = [(0,8)]
 
+plt.plot([1,2,3], [1,2,3])
+nodes = r"{}".format(nodes[0]).strip("()")
+plt.title(r'$\lambda_{{{:2s}}}$'.format(nodes))
+plt.show()
+# %%
+
+idx = 64
+
+plt.plot([1,2,3], [1,2,3])
+plt.title(r'$\theta_{{{:2d}}}$'.format(idx+1))
+plt.show()
+
+# %%
+
+strr = "(0,8)".strip("()")
+print(strr)
+# %%
