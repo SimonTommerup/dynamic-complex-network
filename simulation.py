@@ -24,7 +24,7 @@ v0, a0 = ns.init_dynamics(n_clusts, n_points, v, a)
 ns.init_conditions(z0, v0, a0)
 
 
-selected_nodes = [(0,8), (8, 20), (1, 9), (3,19)]
+selected_nodes = [(0,7), (8, 20), (1, 9), (3,19)]
 
 # animation
 
