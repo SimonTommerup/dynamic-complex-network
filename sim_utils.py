@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.animation as animation
+import webcolors
 import numpy as np
 
 def ax_idx(r, c, n_cols):
@@ -21,7 +22,7 @@ def sharex_grid(rows, cols, axes):
 def animframe(rows, cols, t, selected_nodes):
     fig = plt.figure(constrained_layout=False)
 
-    outer_grid = gridspec.GridSpec(2,1, height_ratios=[1,1], hspace=0.5)
+    outer_grid = gridspec.GridSpec(2,1, height_ratios=[2,1], hspace=0.5)
     upper_cell = outer_grid[0,0]
     lower_cell = outer_grid[1,0]
 
@@ -46,4 +47,14 @@ def set_ax_lim(ax, xlim, ylim):
     ax.set_xlim(xlim[0], xlim[1])
     ax.set_ylim(ylim[0], ylim[1])
 
+def rgb_arr(name):
+    rgb = webcolors.name_to_rgb(name)
+    tup = rgb_to_tup(rgb)
+    arr = np.array(tup)
+    return arr
 
+def rgb_to_tup(rgb):
+    tup = [0,0,0]
+    for idx, val in enumerate(rgb):
+        tup[idx] = val / 255.
+    return tuple(tup)
