@@ -36,6 +36,30 @@ class NodeSpace():
             l = self.lambda_fun(t_i, u, v)
             rsum += dt * l
         return rsum
+    
+    def lambda_int_sq_rapprox(self, t, u, v):
+        dt = np.mean(t[1:len(t)]-t[0:len(t)-1])
+        rsum = 0
+        for t_i in t:
+            l = self.lambda_sq_fun(t_i, u, v)
+            rsum += dt * l
+        return rsum
+
+    def lambda_sq_fun(self, t, u, v):
+        z = self.step(t)
+        d = self.get_sq_dist(t, u, v)
+        try: 
+            l = np.exp(self.beta - self.alpha*d)
+        except FloatingPointError:
+            l = 0.0
+        return np.around(l, decimals=10)
+
+    def lambda_sq_ddt(self, t, u, v):
+        z = self.step(t)
+        dist = self.get_sq_dist(t, u, v)
+        z_uv = z[u,:] - z[v,:]
+        z_uv_ddt = (self.v0[u,:]-self.v0[v,:]) + (self.a0[u,:]- self.a0[v,:])*t
+        return -np.exp(self.beta - self.alpha*dist)*np.dot(z_uv, z_uv_ddt)
 
     def init_conditions(self, z0, v0, a0):
         self.z0 = z0
@@ -98,4 +122,9 @@ class NodeSpace():
         d = sd.pdist(z, metric="euclidean")
         idx = m * u + v - ((u + 2) * (u + 1)) // 2
         return d[idx]
-        
+    
+    def get_sq_dist(self, t, u, v):
+        dist = self.get_dist(t,u,v)
+        sqdist = dist**2
+        debug=True
+        return self.get_dist(t,u,v)**2
