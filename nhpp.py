@@ -217,17 +217,37 @@ if __name__ == "__main__":
     #np.random.seed(150)
     #np.seterr(all='raise')
 
-    ns = NodeSpace()
-    n_clusts = 3
-    n_points = [7, 7, 7]
-    centers = [[-6,0], [0,6], [8,-6]]
-    radius = [1.5,1.5,1.5]
-    v = [[1,0], [0,-1], [-1,1]]
-    a =  [[0,-0.1], [0.1,0], [0,-0.1]]
+    # ns = NodeSpace()
+    # n_clusts = 3
+    # n_points = [7, 7, 7]
+    # centers = [[-6,0], [0,6], [8,-6]]
+    # radius = [1.5,1.5,1.5]
+    # v = [[1,0], [0,-1], [-1,1]]
+    # a =  [[0,-0.1], [0.1,0], [0,-0.1]]
 
-    z0 = ns.init_clusters(n_clusts, n_points, centers, radius)
-    v0, a0 = ns.init_dynamics(n_clusts, n_points, v, a)
+    # z0 = ns.init_clusters(n_clusts, n_points, centers, radius)
+    # v0, a0 = ns.init_dynamics(n_clusts, n_points, v, a)
+    # ns.init_conditions(z0, v0, a0)
+
+
+    # initialize system
+    ns = NodeSpace()
+    n_clusts = 2
+    points_in_clusts = [1, 1]
+    n_points = sum(points_in_clusts)
+    centers = [[-6,0], [6,1]]
+    radius = [0,0]
+    v = [[2,0], [-2,0]]
+    a =  [[-0.25,0], [0.25,0]]
+    z0 = ns.init_clusters(n_clusts, points_in_clusts, centers, radius)
+    v0, a0 = ns.init_dynamics(n_clusts, points_in_clusts, v, a)
     ns.init_conditions(z0, v0, a0)
+
+    # beta and alpha: lambda = exp(beta - alpha * dist)
+    ns.beta = 5
+    ns.alpha = 1
+
+    #t = np.linspace(0, 15)
 
     # find roots
     rmat = root_matrix(ns) 
@@ -240,7 +260,7 @@ if __name__ == "__main__":
     nhppmat = nhpp_mat(ns=ns, time=t, root_matrix=rmat, monotonicity_matrix=mmat)
 
     test_u = 0
-    test_v = 7
+    test_v = 1
 
     e = get_entry(nhppmat, test_u,test_v)
     plt.hist(e)
@@ -252,3 +272,10 @@ if __name__ == "__main__":
     lambda_int_0_T = ns.lambda_int_rapprox(t, test_u, test_v)
     print("Expected value (no. events):", lambda_int_0_T)
     print("Actual value (no. events):", len(e))
+
+
+
+# %%
+
+np.random.uniform(2,5, 2)
+# %%

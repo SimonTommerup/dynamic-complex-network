@@ -1,4 +1,4 @@
-#%matplotlib inline
+%matplotlib inline
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
@@ -33,14 +33,16 @@ ns.alpha = 1
 t = np.linspace(0, 15)
 
 #%%
-selected_node_tups = [(0,7), (8, 20), (1, 9), (3,19)]
+#selected_node_tups = [(0,7), (8, 20), (1, 9), (3,19)]
+selected_node_tups = [(0,7)]
 selected_node_list = [n for tup in selected_node_tups for n in tup]
 selected_node_ind = [True if val in selected_node_list else False for val in range(n_points)]
 other_node_ind = [not val for val in selected_node_ind]
 
-fig, axtop, axes = animframe(2,2,np.linspace(0,16), selected_node_tups)
-
-colors = ["indianred", "tan", "mediumseagreen", "royalblue"]
+#fig, axtop, axes = animframe(2,2,np.linspace(0,16), selected_node_tups)
+fig, axtop, axes = animframe(1,1,np.linspace(0,16), selected_node_tups)
+#colors = ["indianred", "tan", "mediumseagreen", "royalblue"]
+colors = ["indianred"]
 selected_points = []
 for idx, tup in enumerate(selected_node_tups):
     selected_point = axtop.scatter([],[])
@@ -137,6 +139,6 @@ def update(i, t, intensities, selected_points, other_points, lines, legend):
 print("Animating...")
 t1 = time.time()
 anim = animation.FuncAnimation(fig, update, fargs=[t, intensities, selected_points, other_points, lines, legend], init_func=init,frames=len(t),interval=1e3, blit=True)
-anim.save('animation_frame.mp4', dpi=500, fps=10, extra_args=['-vcodec', 'libx264'])
+anim.save('roots-report.mp4', dpi=500, fps=10, extra_args=['-vcodec', 'libx264'])
 anim
 print("Elapsed animation time (s): ", time.time() - t1)
