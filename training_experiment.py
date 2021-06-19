@@ -30,18 +30,16 @@ ns_gt.init_conditions(z_gt, v_gt, a_gt)
 
 
 # Simulate event time data set for the two nodes
-t = np.linspace(0, 1)
+t = np.linspace(0, 10)
 rmat = nhpp_mod.root_matrix(ns_gt) 
 mmat = nhpp_mod.monotonicity_mat(ns_gt, rmat)
 nhppmat = nhpp_mod.nhpp_mat(ns=ns_gt, time=t, root_matrix=rmat, monotonicity_matrix=mmat)
-
 
 # create data set and sort by time
 ind = np.triu_indices(n_points, k=1)
 data_set = []
 for u,v in zip(ind[0], ind[1]):
     event_times = nhpp_mod.get_entry(nhppmat, u=u, v=v)
-    print("Len event times:", len(event_times))
     for e in event_times:
         data_set.append([u, v, e])
 
@@ -66,10 +64,10 @@ print("n_train:", len(training_data))
 print("n_test:", len(test_data))
 
 init_beta = smallnet.infer_beta(n_points, training_data)
+print("init_beta:", init_beta)
 
-NUM_EPOCHS = 1
+NUM_EPOCHS = 50
 NUM_INITS = 10
-
 plt.ion()
 for initialization in range(1,NUM_INITS + 1):
     print(f"Initialization {initialization}")
@@ -86,7 +84,6 @@ for initialization in range(1,NUM_INITS + 1):
     plt.plot(np.arange(NUM_EPOCHS), test_loss, "r")
     plt.show()
     plt.close()
-
 
     fpath = r"state_dicts/training_experiment"
     fname = f"batch=n_train_model_init_{seed}" + ".pth"
