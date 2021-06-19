@@ -5,6 +5,9 @@ import time
 import numpy as np
 import torch.nn as nn
 
+
+torch.pi = torch.tensor(torch.acos(torch.zeros(1)).item()*2)
+
 def nll(ll):
     return -ll
 
@@ -80,7 +83,6 @@ def batch_train(net, n_train, train_batches, test_data, num_epochs):
                 test_output = net(test_data, t0=tn_train, tn=tn_test)
                 test_loss = nll(test_output).item()
                 
-
         avg_train_loss = running_loss / n_train
         avg_test_loss = test_loss / n_test
         current_time = time.time()
@@ -96,12 +98,26 @@ def batch_train(net, n_train, train_batches, test_data, num_epochs):
     return net, training_losses, test_losses
 
 
+def infer_beta(n_points, training_data):
+    tn = training_data[-1][2]
+    ind = np.triu_indices(n_points, k=1)
+    data=training_data
+    n_events = []
+    for u, v in zip(ind[0], ind[1]):
+        event_matches = len(data[np.logical_and(data[:,0]==u, data[:,1]==v)])
+        n_events.append(event_matches)
+
+    n_avg = sum(n_events) / len(n_events)
+
+    return np.log(n_avg / tn)
+
 class SmallNet(nn.Module):
-    def __init__(self, n_points, tn_train, tn_test):
+    def __init__(self, n_points, init_beta):
         super().__init__()
 
-        self.beta = nn.Parameter(torch.rand(size=(1,1)))
-        self.alpha = torch.tensor([1.])
+        #self.beta = nn.Parameter(torch.rand(size=(1,1)))
+        self.beta = init_beta
+        self.alpha = torch.ones(size=(1,1))
 
         self.z0 = nn.Parameter(torch.rand(size=(n_points,2)))
         self.v0 = nn.Parameter(torch.rand(size=(n_points,2)))
@@ -112,8 +128,8 @@ class SmallNet(nn.Module):
         
         self.n_points = n_points
         self.ind = torch.triu_indices(row=self.n_points, col=self.n_points, offset=1)
-        self.tn_train = tn_train # last time point on time axis in simul
-        self.tn_test = tn_test
+        #self.tn_train = tn_train # last time point on time axis in simul
+        #self.tn_test = tn_test
         self.pdist = nn.PairwiseDistance(p=2) # euclidean
 
 
@@ -170,7 +186,7 @@ class SmallNet(nn.Module):
             u, v = to_long(u, v) # cast to int for indexing
             #event_intensity += torch.log(self.lambda_fun(event_time, u=u, v=v) + eps)
             # redefine as simply beta - dist
-            event_intensity += beta - self.get_sq_dist(event_time, u, v)
+            event_intensity += self.beta - self.get_sq_dist(event_time, u, v)
 
         for u, v in zip(self.ind[0], self.ind[1]):
             non_event_intensity += self.eval_integral(u, v, t0, tn, self.z0, self.v0, alpha=self.alpha, beta=self.beta)
