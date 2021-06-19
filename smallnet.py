@@ -45,10 +45,11 @@ def single_batch_train(net, n_train, training_data, test_data, num_epochs):
         avg_test_loss = test_loss / n_test
         current_time = time.time()
         
-        print(f"Epoch {epoch+1}")
-        print(f"elapsed time: {current_time - start_time}" )
-        print(f"train loss: {avg_train_loss}")
-        print(f"test loss: {avg_test_loss}")
+        if epoch == 0 or (epoch+1) % 5 == 0:
+            print(f"Epoch {epoch+1}")
+            print(f"elapsed time: {current_time - start_time}" )
+            print(f"train loss: {avg_train_loss}")
+            print(f"test loss: {avg_test_loss}")
         
         training_losses.append(avg_train_loss)
         test_losses.append(avg_test_loss)
@@ -100,16 +101,17 @@ def batch_train(net, n_train, train_batches, test_data, num_epochs):
 
 def infer_beta(n_points, training_data):
     tn = training_data[-1][2]
-    ind = np.triu_indices(n_points, k=1)
+    ind = torch.triu_indices(row=n_points, col=n_points, offset=1)
     data=training_data
     n_events = []
     for u, v in zip(ind[0], ind[1]):
-        event_matches = len(data[np.logical_and(data[:,0]==u, data[:,1]==v)])
+        event_matches = len(data[torch.logical_and(data[:,0]==u, data[:,1]==v)])
         n_events.append(event_matches)
 
     n_avg = sum(n_events) / len(n_events)
 
-    return np.log(n_avg / tn)
+    return torch.log(n_avg / tn)
+
 
 class SmallNet(nn.Module):
     def __init__(self, n_points, init_beta):
