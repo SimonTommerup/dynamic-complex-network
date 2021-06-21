@@ -204,4 +204,82 @@ class SmallNet(nn.Module):
 
 
 if __name__ == "__main__":
-    print("okay")
+    ZERO_SEED = 0
+    np.random.seed(ZERO_SEED)
+    torch.manual_seed(ZERO_SEED)
+    np.seterr(all='raise')
+
+    # Create dynamical system with constant velocity
+    ns_gt = nodespace.NodeSpace()
+    ns_gt.beta = 7.5
+
+    z_gt = np.array([[-0.6, 0.], [0.6, 0.1], [0.,0.6], [0.,-0.6]])
+    v_gt = np.array([[0.09,0.01], [-0.01,-0.01], [0.01,-0.09], [-0.01, 0.09]])
+    a_gt = np.array([[0.,0.], [0.,0.], [0.,0.], [0., 0.]])
+    n_points=len(z_gt)
+    ns_gt.init_conditions(z_gt, v_gt, a_gt)
+
+
+    # Simulate event time data set for the two nodes
+    t = np.linspace(0, 10)
+    rmat = nhpp_mod.root_matrix(ns_gt) 
+    mmat = nhpp_mod.monotonicity_mat(ns_gt, rmat)
+    nhppmat = nhpp_mod.nhpp_mat(ns=ns_gt, time=t, root_matrix=rmat, monotonicity_matrix=mmat)
+
+    # create data set and sort by time
+    ind = np.triu_indices(n_points, k=1)
+    data_set = []
+    for u,v in zip(ind[0], ind[1]):
+        event_times = nhpp_mod.get_entry(nhppmat, u=u, v=v)
+        for e in event_times:
+            data_set.append([u, v, e])
+
+    data_set = np.array(data_set)
+    time_col = 2
+    data_set = data_set[data_set[:,time_col].argsort()]
+
+    # verify time ordering
+    prev_t = 0.
+    for row in data_set:
+        cur_t = row[time_col]
+        assert cur_t > prev_t
+        prev_t = cur_t
+
+
+    data_set = torch.from_numpy(data_set)
+    num_train_samples = int(len(data_set)*0.8)
+    training_data = data_set[0:num_train_samples]
+    test_data = data_set[num_train_samples:]
+
+    n_train = len(training_data)
+    print("n_train:", n_train)
+    print("n_test:", len(test_data))
+
+    init_beta = infer_beta(n_points, training_data)
+    print("init_beta:", init_beta)
+
+    gt_net = SmallNet(4, 7.5)
+
+    gt_dict = gt_net.state_dict()
+    gt_z = torch.from_numpy(z_gt)
+    gt_v = torch.from_numpy(v_gt)
+    gt_dict["z0"] = gt_z
+    gt_dict["v0"] = gt_v
+
+    gt_net.load_state_dict(gt_dict)
+
+    tn_train = training_data[-1][2] # last time point in training data
+    tn_test = test_data[-1][2] # last time point in test data
+
+    gt_net.eval()
+    with torch.no_grad():
+        print("Train likelihood:")
+        print(-gt_net(training_data, t0=0, tn=tn_train) / len(training_data))
+        print("Test likelihood:")
+        print(-gt_net(test_data, t0=tn_train, tn=tn_test) / len(test_data))
+
+
+ # %%
+
+ print(gt_net.state_dict())
+# %%
