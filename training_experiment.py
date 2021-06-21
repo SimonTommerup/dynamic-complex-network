@@ -3,6 +3,7 @@ import nodespace
 import smallnet
 import os
 import nhpp_mod
+import compare_rates
 import time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -60,32 +61,47 @@ num_train_samples = int(len(data_set)*0.8)
 training_data = data_set[0:num_train_samples]
 test_data = data_set[num_train_samples:]
 
-print("n_train:", len(training_data))
+n_train = len(training_data)
+print("n_train:", n_train)
 print("n_test:", len(test_data))
 
 init_beta = smallnet.infer_beta(n_points, training_data)
 print("init_beta:", init_beta)
 
-NUM_EPOCHS = 50
+training_batches = np.array_split(training_data, 450)
+
+print("Batch size:", len(training_batches[0]))
+
+NUM_EPOCHS = 75
 NUM_INITS = 10
 plt.ion()
 for initialization in range(1,NUM_INITS + 1):
     print(f"Initialization {initialization}")
-    seed = ZERO_SEED + initialization 
-    
+    seed = ZERO_SEED + initialization
     np.random.seed(seed)
     torch.manual_seed(seed)
 
+
+
+    fpath = r"state_dicts/training_experiment"
+    fname = f"batch=141_LR=0.001_50epoch_init_{seed}" + ".pth"
+    full_path = os.path.join(fpath, fname)
+    
     net = smallnet.SmallNet(n_points=n_points, init_beta=init_beta)
+    
+    # if load previous
+    #net.load_state_dict(torch.load(full_path))
 
-    net, train_loss, test_loss = smallnet.single_batch_train(net, num_train_samples, training_data, test_data, NUM_EPOCHS)
+    #net, train_loss, test_loss = smallnet.single_batch_train(net, num_train_samples, training_data, test_data, NUM_EPOCHS)
+    net, train_loss, test_loss = smallnet.batch_train(net, n_train, training_batches, test_data, NUM_EPOCHS)
 
-    plt.plot(np.arange(NUM_EPOCHS), train_loss, "g")
-    plt.plot(np.arange(NUM_EPOCHS), test_loss, "r")
+    plt.plot(np.arange(NUM_EPOCHS), train_loss, "g", label="Train")
+    plt.plot(np.arange(NUM_EPOCHS), test_loss, "r", label="Test")
+    plt.legend(loc="upper right")
     plt.show()
     plt.close()
 
-    fpath = r"state_dicts/training_experiment"
-    fname = f"batch=n_train_model_init_{seed}" + ".pth"
+    
+    torch.save(net.state_dict(), full_path)
 
-    torch.save(net.state_dict(), os.path.join(fpath, fname))
+    compare_rates.compare_intensity_rates(net, ns_gt, 0, 3, full_path, training_data, test_data)

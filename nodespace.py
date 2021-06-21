@@ -48,10 +48,7 @@ class NodeSpace():
     def lambda_sq_fun(self, t, u, v):
         z = self.step(t)
         d = self.get_sq_dist(t, u, v)
-        try: 
-            l = np.exp(self.beta - self.alpha*d)
-        except FloatingPointError:
-            l = 0.0
+        l = np.exp(self.beta - self.alpha*d)
         return np.around(l, decimals=10)
 
     def lambda_sq_ddt(self, t, u, v):

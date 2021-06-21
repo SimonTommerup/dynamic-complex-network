@@ -15,7 +15,7 @@ def to_long(ufloat, vfloat):
     return ufloat.long(), vfloat.long()
 
 def single_batch_train(net, n_train, training_data, test_data, num_epochs):
-    optimizer = torch.optim.Adam(net.parameters())
+    optimizer = torch.optim.Adam(net.parameters(), lr=0.025)
     training_losses = []
     test_losses = []
     tn_train = training_data[-1][2] # last time point in training data
@@ -50,6 +50,8 @@ def single_batch_train(net, n_train, training_data, test_data, num_epochs):
             print(f"elapsed time: {current_time - start_time}" )
             print(f"train loss: {avg_train_loss}")
             print(f"test loss: {avg_test_loss}")
+            print("State dict:")
+            print(net.state_dict())
         
         training_losses.append(avg_train_loss)
         test_losses.append(avg_test_loss)
@@ -58,7 +60,7 @@ def single_batch_train(net, n_train, training_data, test_data, num_epochs):
 
 
 def batch_train(net, n_train, train_batches, test_data, num_epochs):
-    optimizer = torch.optim.Adam(net.parameters())
+    optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
     training_losses = []
     test_losses = []
     tn_train = train_batches[-1][-1][2] # last time point in training data
@@ -68,8 +70,7 @@ def batch_train(net, n_train, train_batches, test_data, num_epochs):
     for epoch in range(num_epochs):
         start_time = time.time()
         running_loss = 0.
-        for idx, batch in train_batches:
-
+        for idx, batch in enumerate(train_batches):
             net.train()
             optimizer.zero_grad()
             output = net(batch, t0=batch[0][2], tn=batch[-1][2])
@@ -79,19 +80,22 @@ def batch_train(net, n_train, train_batches, test_data, num_epochs):
 
             running_loss += loss.item()
 
-            net.eval()
-            with torch.no_grad():
-                test_output = net(test_data, t0=tn_train, tn=tn_test)
-                test_loss = nll(test_output).item()
+        net.eval()
+        with torch.no_grad():
+            test_output = net(test_data, t0=tn_train, tn=tn_test)
+            test_loss = nll(test_output).item()
                 
         avg_train_loss = running_loss / n_train
         avg_test_loss = test_loss / n_test
         current_time = time.time()
-        
-        print(f"Epoch {epoch+1}")
-        print(f"elapsed time: {current_time - start_time}" )
-        print(f"train loss: {avg_train_loss}")
-        print(f"test loss: {avg_test_loss}")
+
+        if epoch == 0 or (epoch+1) % 5 == 0:
+            print(f"Epoch {epoch+1}")
+            print(f"elapsed time: {current_time - start_time}" )
+            print(f"train loss: {avg_train_loss}")
+            print(f"test loss: {avg_test_loss}")
+            print("State dict:")
+            print(net.state_dict())
         
         training_losses.append(avg_train_loss)
         test_losses.append(avg_test_loss)
@@ -118,7 +122,7 @@ class SmallNet(nn.Module):
         super().__init__()
 
         #self.beta = nn.Parameter(torch.rand(size=(1,1)))
-        self.beta = init_beta
+        self.beta = nn.Parameter(torch.tensor([[init_beta]]))
         self.alpha = torch.ones(size=(1,1))
 
         self.z0 = nn.Parameter(torch.rand(size=(n_points,2)))
@@ -197,3 +201,7 @@ class SmallNet(nn.Module):
         #    non_event_intensity += self.eval_integral_sample(u, v, t0, tn, n_samples=10)
 
         return event_intensity - weight*non_event_intensity
+
+
+if __name__ == "__main__":
+    print("okay")
