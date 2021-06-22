@@ -72,8 +72,9 @@ training_batches = np.array_split(training_data, 450)
 
 print("Batch size:", len(training_batches[0]))
 
-NUM_EPOCHS = 75
-NUM_INITS = 10
+
+NUM_EPOCHS = 50
+NUM_INITS = 1
 plt.ion()
 for initialization in range(1,NUM_INITS + 1):
     print(f"Initialization {initialization}")
@@ -84,7 +85,7 @@ for initialization in range(1,NUM_INITS + 1):
 
 
     fpath = r"state_dicts/training_experiment"
-    fname = f"batch=141_LR=0.001_50epoch_init_{seed}" + ".pth"
+    fname = f"batch=141_LR=0.001_test-ratio_init_{seed}" + ".pth"
     full_path = os.path.join(fpath, fname)
     
     net = smallnet.SmallNet(n_points=n_points, init_beta=init_beta)
@@ -92,8 +93,8 @@ for initialization in range(1,NUM_INITS + 1):
     # if load previous
     #net.load_state_dict(torch.load(full_path))
 
-    #net, train_loss, test_loss = smallnet.single_batch_train(net, num_train_samples, training_data, test_data, NUM_EPOCHS)
-    net, train_loss, test_loss = smallnet.batch_train(net, n_train, training_batches, test_data, NUM_EPOCHS)
+    net, train_loss, test_loss = smallnet.single_batch_train(net, num_train_samples, training_data, test_data, NUM_EPOCHS)
+    #net, train_loss, test_loss = smallnet.batch_train(net, n_train, training_batches, test_data, NUM_EPOCHS)
 
     plt.plot(np.arange(NUM_EPOCHS), train_loss, "g", label="Train")
     plt.plot(np.arange(NUM_EPOCHS), test_loss, "r", label="Test")
@@ -102,6 +103,6 @@ for initialization in range(1,NUM_INITS + 1):
     plt.close()
 
     
-    torch.save(net.state_dict(), full_path)
+    #torch.save(net.state_dict(), full_path)
 
-    compare_rates.compare_intensity_rates(net, ns_gt, 0, 3, full_path, training_data, test_data)
+    #compare_rates.compare_intensity_rates(net, ns_gt, 0, 3, full_path, training_data, test_data)

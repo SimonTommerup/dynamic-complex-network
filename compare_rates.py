@@ -48,6 +48,38 @@ def compare_intensity_rates(model, nodespace, node_u, node_v, path, training_dat
     ax[1].set_title("Test")
     plt.show()
 
+def compare_intensity_rates_no_path(model, nodespace, node_u, node_v, training_data, test_data):
+    #model.load_state_dict(torch.load(path))
+    model.eval()
+
+    train_t = get_times(training_data)
+    test_t = get_times(test_data)
+
+    plot_t = [train_t, test_t]
+
+    gttrain = []
+    restrain = []
+    for ti in plot_t[0]:
+        gttrain.append(nodespace.lambda_sq_fun(ti, node_u, node_v))
+        restrain.append(model.lambda_fun(ti, node_u, node_v))
+
+    gttest = []
+    restest = []
+    for ti in plot_t[1]:
+        gttest.append(nodespace.lambda_sq_fun(ti, node_u, node_v))
+        restest.append(model.lambda_fun(ti, node_u, node_v))
+
+    fig, ax = plt.subplots(nrows=1, ncols=2)
+    ax[0].plot(plot_t[0], restrain, color="red", label="est")
+    ax[0].plot(plot_t[0], gttrain, color="blue", label="gt")
+    ax[0].legend()
+    ax[0].set_title("Train")
+    ax[1].plot(plot_t[1], restest, color="red", label="est")
+    ax[1].plot(plot_t[1],gttest, color="blue", label="gt")
+    ax[1].legend()
+    ax[1].set_title("Test")
+    plt.show()
+
 
 if __name__=="__main__":
     fpath = r"state_dicts/training_experiment"
@@ -100,9 +132,12 @@ if __name__=="__main__":
     training_data = data_set[0:num_train_samples]
     test_data = data_set[num_train_samples:]
 
+    seed = 7
+    fname_1 = f"batch=141_LR=0.001_75epoch_init_{seed}" + ".pth"
+    fname_2 = f"batch=ntrain_LR=0.025_75epoch_init_{seed}" + ".pth"
+    path =  os.path.join(fpath, fname_2)
 
-    seed = 1
-    fname = f"batch=ntrain_LR=0.025_75epoch_init_{seed}" + ".pth"
+    for u,v in zip(ind[0], ind[1]):
+        compare_intensity_rates(model, ns_gt, u, v, path, training_data, test_data)
+        plt.close()
 
-    path =  os.path.join(fpath, fname)
-    compare_intensity_rates(model, ns_gt, 0, 3, path, training_data, test_data)

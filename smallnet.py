@@ -2,6 +2,7 @@ import torch
 import nodespace
 import nhpp_mod
 import time
+import compare_rates
 import numpy as np
 import torch.nn as nn
 
@@ -28,7 +29,7 @@ def single_batch_train(net, n_train, training_data, test_data, num_epochs):
 
         net.train()
         optimizer.zero_grad()
-        output = net(training_data, t0=0, tn=tn_train)
+        output, train_ratio = net(training_data, t0=0, tn=tn_train)
         loss = nll(output)
         loss.backward()
         optimizer.step()
@@ -37,7 +38,7 @@ def single_batch_train(net, n_train, training_data, test_data, num_epochs):
 
         net.eval()
         with torch.no_grad():
-            test_output = net(test_data, t0=tn_train, tn=tn_test)
+            test_output, test_ratio = net(test_data, t0=tn_train, tn=tn_test)
             test_loss = nll(test_output).item()
                 
 
@@ -50,8 +51,10 @@ def single_batch_train(net, n_train, training_data, test_data, num_epochs):
             print(f"elapsed time: {current_time - start_time}" )
             print(f"train loss: {avg_train_loss}")
             print(f"test loss: {avg_test_loss}")
-            print("State dict:")
-            print(net.state_dict())
+            #print("State dict:")
+            #print(net.state_dict())
+            print(f"train event to non-event ratio: {train_ratio.item()}")
+            print(f"test event to non-event-ratio: {test_ratio.item()}")
         
         training_losses.append(avg_train_loss)
         test_losses.append(avg_test_loss)
@@ -70,22 +73,27 @@ def batch_train(net, n_train, train_batches, test_data, num_epochs):
     for epoch in range(num_epochs):
         start_time = time.time()
         running_loss = 0.
+        sum_ratio = 0.
+        start_t = torch.tensor([0.0])
         for idx, batch in enumerate(train_batches):
             net.train()
             optimizer.zero_grad()
-            output = net(batch, t0=batch[0][2], tn=batch[-1][2])
+            output, ratio = net(batch, t0=start_t, tn=batch[-1][2])
             loss = nll(output)
             loss.backward()
             optimizer.step()
 
             running_loss += loss.item()
+            sum_ratio += ratio
+            start_t = batch[-1][2]
 
         net.eval()
         with torch.no_grad():
-            test_output = net(test_data, t0=tn_train, tn=tn_test)
+            test_output, test_ratio = net(test_data, t0=tn_train, tn=tn_test)
             test_loss = nll(test_output).item()
                 
         avg_train_loss = running_loss / n_train
+        avg_train_ratio = sum_ratio / len(train_batches)
         avg_test_loss = test_loss / n_test
         current_time = time.time()
 
@@ -94,14 +102,33 @@ def batch_train(net, n_train, train_batches, test_data, num_epochs):
             print(f"elapsed time: {current_time - start_time}" )
             print(f"train loss: {avg_train_loss}")
             print(f"test loss: {avg_test_loss}")
-            print("State dict:")
-            print(net.state_dict())
+            print(f"train event to non-event ratio: {avg_train_ratio.item()}")
+            print(f"test event to non-event-ratio: {test_ratio.item()}")
+            #print("State dict:")
+            #print(net.state_dict())
         
         training_losses.append(avg_train_loss)
         test_losses.append(avg_test_loss)
     
     return net, training_losses, test_losses
 
+def integral_count(net, full_set, train_batches):
+    split_non = 0.
+    net.eval()
+    with torch.no_grad():
+        start_t = torch.tensor([0.0])
+        for idx, batch in enumerate(train_batches):
+            output, non_events = net(batch, t0=start_t, tn=batch[-1][2])
+            start_t = batch[-1][2]
+
+            split_non += non_events
+    
+    tn_train = training_data[-1][2] # last time point in training data
+    tn_test = test_data[-1][2] # last time point in test data
+    with torch.no_grad():
+        output, non_events2 = net(training_data, t0=0, tn=tn_train)
+
+    return split_non, non_events2
 
 def infer_beta(n_points, training_data):
     tn = training_data[-1][2]
@@ -120,24 +147,13 @@ def infer_beta(n_points, training_data):
 class SmallNet(nn.Module):
     def __init__(self, n_points, init_beta):
         super().__init__()
-
-        #self.beta = nn.Parameter(torch.rand(size=(1,1)))
         self.beta = nn.Parameter(torch.tensor([[init_beta]]))
-        self.alpha = torch.ones(size=(1,1))
-
         self.z0 = nn.Parameter(torch.rand(size=(n_points,2)))
         self.v0 = nn.Parameter(torch.rand(size=(n_points,2)))
-        #self.a0 = nn.Parameter(torch.rand(size=(n_points,2)))
         self.a0 = torch.zeros(size=(n_points,2))
-
-        
-        
         self.n_points = n_points
         self.ind = torch.triu_indices(row=self.n_points, col=self.n_points, offset=1)
-        #self.tn_train = tn_train # last time point on time axis in simul
-        #self.tn_test = tn_test
         self.pdist = nn.PairwiseDistance(p=2) # euclidean
-
 
     def step(self, t):
         self.z = self.z0[:,:] + self.v0[:,:]*t + 0.5*self.a0[:,:]*t**2
@@ -153,25 +169,16 @@ class SmallNet(nn.Module):
     def lambda_fun(self, t, u, v):
         z = self.step(t)
         d = self.get_sq_dist(t, u, v)
-        # remove alpha.
-        return torch.exp(self.beta - self.alpha*d)
+        return torch.exp(self.beta - d)
 
-    def _eval_integral(self, i, j, z, v, T, alpha, beta):
+    def evaluate_integral(self, i, j, t0, tn, z, v, beta):
         a = z[i,0] - z[j,0]
         b = z[i,1] - z[j,1]
         m = v[i,0] - v[j,0]
         n = v[i,1] - v[j,1]
+        return -torch.sqrt(torch.pi)*torch.exp(((-b**2 + beta)*m**2 + 2*a*b*m*n - n**2*(a**2 - beta))/(m**2 + n**2))*(torch.erf(((m**2 + n**2)*t0 + a*m + b*n)/torch.sqrt(m**2 + n**2)) - torch.erf(((m**2 + n**2)*tn + a*m + b*n)/torch.sqrt(m**2 + n**2)))/(2*torch.sqrt(m**2 + n**2))
 
-        return torch.sqrt(torch.pi)*torch.exp((-(a*n - b*m)**2*alpha + beta*(m**2 + n**2))/(m**2 + n**2))*torch.sqrt(alpha*(m**2 + n**2))*(torch.erf(alpha*((m**2 + n**2)*T + a*m + b*n)/torch.sqrt(alpha*(m**2 + n**2))) - torch.erf(alpha*(a*m + b*n)/torch.sqrt(alpha*(m**2 + n**2))))/(2*alpha*(m**2 + n**2))
-
-    def eval_integral(self, i, j, t0, tn, z, v, alpha, beta):
-        a = z[i,0] - z[j,0]
-        b = z[i,1] - z[j,1]
-        m = v[i,0] - v[j,0]
-        n = v[i,1] - v[j,1]
-        return -torch.sqrt(torch.pi)*torch.exp((-(a*n - b*m)**2*alpha + (m**2 + n**2)*beta)/(m**2 + n**2))*(torch.erf(alpha*((m**2 + n**2)*t0 + a*m + b*n)/torch.sqrt(alpha*(m**2 + n**2))) - torch.erf(alpha*((m**2 + n**2)*tn + a*m + b*n)/torch.sqrt(alpha*(m**2 + n**2))))/(2*torch.sqrt(alpha*(m**2 + n**2)))
-
-    def eval_integral_sample(self, i, j, t0, tn, n_samples):
+    def sample_integral(self, i, j, t0, tn, n_samples):
         sample_times = np.random.uniform(t0, tn, n_samples)
         int_lambda = 0.
 
@@ -184,23 +191,19 @@ class SmallNet(nn.Module):
         return int_lambda
 
     def forward(self, data, t0, tn, weight=1):
-        #eps = 1e-7
         event_intensity = 0.
         non_event_intensity = 0.
-        #i=0
         for u, v, event_time in data:
             u, v = to_long(u, v) # cast to int for indexing
-            #event_intensity += torch.log(self.lambda_fun(event_time, u=u, v=v) + eps)
-            # redefine as simply beta - dist
             event_intensity += self.beta - self.get_sq_dist(event_time, u, v)
 
         for u, v in zip(self.ind[0], self.ind[1]):
-            non_event_intensity += self.eval_integral(u, v, t0, tn, self.z0, self.v0, alpha=self.alpha, beta=self.beta)
+            non_event_intensity += self.evaluate_integral(u, v, t0, tn, self.z0, self.v0, beta=self.beta)
+        
+        log_likelihood = event_intensity - weight*non_event_intensity
+        ratio = event_intensity / (weight*non_event_intensity)
 
-        #for u, v in zip(self.ind[0], self.ind[1]):
-        #    non_event_intensity += self.eval_integral_sample(u, v, t0, tn, n_samples=10)
-
-        return event_intensity - weight*non_event_intensity
+        return log_likelihood, ratio
 
 
 if __name__ == "__main__":
@@ -270,16 +273,32 @@ if __name__ == "__main__":
 
     tn_train = training_data[-1][2] # last time point in training data
     tn_test = test_data[-1][2] # last time point in test data
+    
+    training_batches = np.array_split(training_data, 450)
+    print(type(training_batches))
 
-    gt_net.eval()
-    with torch.no_grad():
-        print("Train likelihood:")
-        print(-gt_net(training_data, t0=0, tn=tn_train) / len(training_data))
-        print("Test likelihood:")
-        print(-gt_net(test_data, t0=tn_train, tn=tn_test) / len(test_data))
+    batched, non_batched = integral_count(gt_net, training_data, training_batches)
+    print(batched)
+    print(non_batched)
 
 
- # %%
+    # triem= np.linspace(0,15, 50000)
+    # print("Riemann sq:", ns_gt.lambda_int_sq_rapprox(t=triem, u=2, v=3))
 
- print(gt_net.state_dict())
-# %%
+    # u_test, v_test = to_long(torch.tensor([2.0]), torch.tensor([3.0]))
+    # t0_ = torch.tensor([0.])
+    # tn_ = torch.tensor([15.])
+
+    # print("Old Exact", gt_net.eval_integral(i=u_test, j=v_test, t0=t0_, tn=tn_, z=gt_net.z0, v=gt_net.v0, alpha=gt_net.alpha, beta=gt_net.beta))
+    # print("new Exact", gt_net.new_integral(i=u_test, j=v_test, t0=t0_, tn=tn_, z=gt_net.z0, v=gt_net.v0, beta=gt_net.beta))
+    # gt_net.eval()
+    # with torch.no_grad():
+    #     print("Train likelihood:")
+    #     print(-gt_net(training_data, t0=0, tn=tn_train) / len(training_data))
+    #     print("Test likelihood:")
+    #     print(-gt_net(test_data, t0=tn_train, tn=tn_test) / len(test_data))
+
+    #compare_rates.compare_intensity_rates_no_path(gt_net, ns_gt, 1, 3, training_data, test_data)
+
+
+   
