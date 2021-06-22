@@ -19,7 +19,7 @@ def sharex_grid(rows, cols, axes):
                 ax.set_xticklabels([])
         ax0.set_xticklabels([])
 
-def animframe(rows, cols, t, selected_nodes):
+def animframe(rows, cols, selected_nodes):
     fig = plt.figure(constrained_layout=False)
 
     outer_grid = gridspec.GridSpec(2,1, height_ratios=[2,1], hspace=0.5)
