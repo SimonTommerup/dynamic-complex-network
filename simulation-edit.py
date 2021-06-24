@@ -6,43 +6,55 @@ plt.rcParams["animation.html"] = "jshtml"
 import matplotlib.animation as animation
 import numpy as np
 import nhpp
+import torch
 from sim_utils import animframe, set_ax_lim, rgb_arr
 from nodespace import NodeSpace
 import time
 from matplotlib.collections import PatchCollection
+from sklearn.datasets import make_blobs
 
 #plt.style.use("dark_background")
 
 # initialize system
-ns = NodeSpace()
-n_clusts = 3
-points_in_clusts = [7, 7, 7]
-n_points = sum(points_in_clusts)
-centers = [[-6,0], [0,6], [8,-6]]
-radius = [1.5,1.5,1.5]
-v = [[1,0], [0,-1], [-1,1]]
-a =  [[0,-0.1], [0.1,0], [0,-0.1]]
-z0 = ns.init_clusters(n_clusts, points_in_clusts, centers, radius)
-v0, a0 = ns.init_dynamics(n_clusts, points_in_clusts, v, a)
-ns.init_conditions(z0, v0, a0)
+# ns = NodeSpace()
+# n_clusts = 3
+# points_in_clusts = [7, 7, 7]
+# n_points = sum(points_in_clusts)
+# centers = [[-6,0], [0,6], [8,-6]]
+# radius = [1.5,1.5,1.5]
+# v = [[1,0], [0,-1], [-1,1]]
+# a =  [[0,-0.1], [0.1,0], [0,-0.1]]
+# z0 = ns.init_clusters(n_clusts, points_in_clusts, centers, radius)
+# v0, a0 = ns.init_dynamics(n_clusts, points_in_clusts, v, a)
+# ns.init_conditions(z0, v0, a0)
 
-# beta and alpha: lambda = exp(beta - alpha * dist)
+ZERO_SEED = 0
+np.random.seed(ZERO_SEED)
+torch.manual_seed(ZERO_SEED)
+np.seterr(all='raise')
+
+ns= NodeSpace()
 ns.beta = 5
-ns.alpha = 1
+n_points = 200
+
+z_gt, y = make_blobs(n_samples=n_points, centers=3, center_box=(-5,5))
+v_gt, a_gt = ns.rand_init_dynamics(n_points)
+ns.init_conditions(z_gt, v_gt, a_gt)
+
 
 t = np.linspace(0, 15)
 
 #%%
-#selected_node_tups = [(0,7), (8, 20), (1, 9), (3,19)]
-selected_node_tups = [(0,7), (1,9)]
+selected_node_tups = [(53,120), (8, 199), (1, 33), (89,19)]
+#selected_node_tups = [(0,7), (1,9)]
 selected_node_list = [n for tup in selected_node_tups for n in tup]
 selected_node_ind = [True if val in selected_node_list else False for val in range(n_points)]
 other_node_ind = [not val for val in selected_node_ind]
 
-#fig, axtop, axes = animframe(2,2,np.linspace(0,16), selected_node_tups)
-fig, axtop, axes = animframe(rows=1,cols=2, selected_nodes=selected_node_tups)
-#colors = ["indianred", "tan", "mediumseagreen", "royalblue"]
-colors = ["indianred", "royalblue"]
+fig, axtop, axes = animframe(2,2, selected_node_tups)
+#fig, axtop, axes = animframe(rows=1,cols=2, selected_nodes=selected_node_tups)
+colors = ["indianred", "tan", "mediumseagreen", "royalblue"]
+#colors = ["indianred", "royalblue"]
 selected_points = []
 for idx, tup in enumerate(selected_node_tups):
     selected_point = axtop.scatter([],[])
@@ -96,13 +108,15 @@ for (u,v) in selected_node_tups:
     
 intensities = np.array(intensities)
 
-rmat = nhpp.root_matrix(ns) 
-mmat = nhpp.monotonicity_mat(ns, rmat)
+#rmat = nhpp.root_matrix(ns) 
+#mmat = nhpp.monotonicity_mat(ns, rmat)
+# print("Simulating events...")
+# t0 = time.time()
+# nhppmat = nhpp.nhpp_mat(ns=ns, time=t, root_matrix=rmat, monotonicity_matrix=mmat)
+# print("Elapsed simulation time (s): ", time.time() - t0)
 
-print("Simulating events...")
-t0 = time.time()
-nhppmat = nhpp.nhpp_mat(ns=ns, time=t, root_matrix=rmat, monotonicity_matrix=mmat)
-print("Elapsed simulation time (s): ", time.time() - t0)
+print("Loading events:")
+nhppmat = np.load("200pointdata-beta=5.npy", allow_pickle=True)
 
 set_ax_lim(axtop, xlim=[-15,15], ylim=[-15,15])
 all_events = []
@@ -120,10 +134,15 @@ for i, ax in enumerate(axes):
 
 all_events = np.concatenate(all_events, axis=0)
 all_events = np.sort(all_events, axis=0)
+#%%
 
+all_events[-1]
+#%%
+
+nhpp.get_entry(nhppmat, 53, 120)
 
 #%%
-len(t)
+print("No events", len(all_events))
 
 #%%
 event_time_to_node_pair = {}
@@ -146,6 +165,7 @@ intensities_at_event = np.array(intensities_at_event)
 # %%
 def update(i, t, intensities, selected_points, other_points, link, lines, legend):
     print("Update:", i+1)
+    print("Time:", t[i])
     z = ns.step(t[i])
     for idx, selected_point in enumerate(selected_points):
         cur_node_pair = selected_node_tups[idx]
@@ -153,7 +173,7 @@ def update(i, t, intensities, selected_points, other_points, link, lines, legend
         selected_point.set_offsets(ns.z[cur_slice, :])
         cur_col = rgb_arr(colors[idx])
         selected_point.set_color([cur_col, cur_col])
-        selected_point.set_alpha(0.75)
+        selected_point.set_alpha(1)
         selected_point.set_label(f"({cur_node_pair[0]},{cur_node_pair[1]})")
     
     legend.remove()
@@ -161,7 +181,7 @@ def update(i, t, intensities, selected_points, other_points, link, lines, legend
 
     other_points.set_offsets(z[other_node_ind,:])
     other_points.set_color(rgb_arr("black"))
-    other_points.set_alpha(0.25)
+    other_points.set_alpha(0.1)
     #print(len(intensities))
     linked_nodes = event_time_to_node_pair[t[i]]
     node_u = linked_nodes[0]
@@ -187,8 +207,8 @@ def update(i, t, intensities, selected_points, other_points, link, lines, legend
 print("Animating...")
 t1 = time.time()
 #anim = animation.FuncAnimation(fig, update, fargs=[t, intensities, selected_points, other_points, lines, legend], init_func=init,frames=len(t),interval=1e3, blit=True)
-anim = animation.FuncAnimation(fig, update, fargs=[all_events, intensities_at_event, selected_points, other_points, link, lines, legend], init_func=init,frames=len(all_events[0:10]),interval=1e3, blit=True)
-anim.save('link-test.mp4', dpi=500, fps=10, extra_args=['-vcodec', 'libx264'])
+anim = animation.FuncAnimation(fig, update, fargs=[all_events, intensities_at_event, selected_points, other_points, link, lines, legend], init_func=init,frames=len(all_events),interval=1e3, blit=True)
+anim.save('large-net-test-2.mp4', dpi=500, fps=10, extra_args=['-vcodec', 'libx264'])
 anim
 #print("Elapsed animation time (s): ", time.time() - t1)
 

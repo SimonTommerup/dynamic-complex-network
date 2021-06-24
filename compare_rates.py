@@ -2,7 +2,7 @@ import nodespace
 import nhpp_mod
 import torch
 import os
-import smallnet
+import smallnet_eucliddist as smallnet
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt

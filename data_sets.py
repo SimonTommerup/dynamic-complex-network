@@ -58,6 +58,18 @@ class MITDataSet(Dataset):
     def unique(self, nodes):
         return set(nodes)
 
+class SyntheticData(Dataset):
+    def __init__(self, numpydata):
+        super().__init__()
+        self.data = torch.from_numpy(numpydata)
+    
+    def __len__(self):
+        return len(self.data)
+        
+    def __getitem__(self, index):
+        return self.data[index]
+    
+
 if __name__ == "__main__":
     wikipedia = SnapDataSet(SNAP_WIKIPEDIA)
     print(wikipedia[0])

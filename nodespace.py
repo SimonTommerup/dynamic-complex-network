@@ -4,7 +4,6 @@ import scipy.spatial.distance as sd
 class NodeSpace():
     def __init__(self):
         self.beta = 5.0
-        self.alpha = 1.0
         self.z0 = None
         self.v0 = None
         self.a0 = None
@@ -19,7 +18,7 @@ class NodeSpace():
     def lambda_fun(self, t, u, v):
         z = self.step(t)
         d = self.get_dist(t, u, v)
-        l = np.exp(self.beta - self.alpha*d)
+        l = np.exp(self.beta - d)
         return np.around(l, decimals=10)
 
     def lambda_ddt(self, t, u, v):
@@ -27,7 +26,7 @@ class NodeSpace():
         dist = self.get_dist(t, u, v)
         z_uv = z[u,:] - z[v,:]
         z_uv_ddt = (self.v0[u,:]-self.v0[v,:]) + (self.a0[u,:]- self.a0[v,:])*t
-        return -np.exp(self.beta - self.alpha*dist)*np.dot(z_uv, z_uv_ddt) / dist
+        return -np.exp(self.beta - dist)*np.dot(z_uv, z_uv_ddt) / dist
 
     def lambda_int_rapprox(self, t, u, v):
         dt = np.mean(t[1:len(t)]-t[0:len(t)-1])
@@ -48,7 +47,7 @@ class NodeSpace():
     def lambda_sq_fun(self, t, u, v):
         z = self.step(t)
         d = self.get_sq_dist(t, u, v)
-        l = np.exp(self.beta - self.alpha*d)
+        l = np.exp(self.beta - d)
         return np.around(l, decimals=10)
 
     def lambda_sq_ddt(self, t, u, v):
@@ -56,7 +55,7 @@ class NodeSpace():
         dist = self.get_sq_dist(t, u, v)
         z_uv = z[u,:] - z[v,:]
         z_uv_ddt = (self.v0[u,:]-self.v0[v,:]) + (self.a0[u,:]- self.a0[v,:])*t
-        return -np.exp(self.beta - self.alpha*dist)*np.dot(z_uv, z_uv_ddt)
+        return -np.exp(self.beta - dist)*np.dot(z_uv, z_uv_ddt)
 
     def init_conditions(self, z0, v0, a0):
         self.z0 = z0
@@ -86,6 +85,11 @@ class NodeSpace():
             a0.append(a_i)
         v0 = np.reshape(np.array(v0), (sum(n_points),2))
         a0 = np.reshape(np.array(a0), (sum(n_points),2))
+        return v0, a0
+
+    def rand_init_dynamics(self, n_points):
+        v0 = np.random.uniform(-1, 1, size=(n_points, 2))
+        a0 = np.random.uniform(-1, 1, size=(n_points, 2))
         return v0, a0
 
     def init_points(self, n, center, rad):

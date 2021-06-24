@@ -52,12 +52,12 @@ def monotonicity_mat(ns, root_matrix):
             mmat[u,v] = np.array([])
             continue
 
-        time_points = [roots[0] - 0.5] # t to get sign of dLambda(t)/dt before first root
+        time_points = [roots[0] - 1e-7] # t to get sign of dLambda(t)/dt before first root
         while i < len(roots)-1:
             t = roots[i] + (roots[i+1] - roots[i]) / 2 # t's to get sign of dLambda(t)/dt between roots
             time_points.append(t)
             i += 1 
-        time_points.append(roots[-1] + 0.5) # t to get sign of dLambda(t)/dt after last root
+        time_points.append(roots[-1] + 1e-7) # t to get sign of dLambda(t)/dt after last root
 
         monotonicity = []
         for t in time_points:
@@ -100,7 +100,38 @@ def time_to_monotonicity(time, roots, monotonicity):
             ttm.append(monotonicity[cur_m])
     return ttm
 
-def upperbounds(ns, u, v, time, roots, time_to_monotonicity):
+
+def new_upperbounds(ns, u, v, time, roots):
+    idx = 0
+    if len(roots)>0:
+        lambda_arr = []
+        while idx < len(time)-1:
+            start_t, end_t = time[idx], time[idx+1]
+            roots_in_interval = roots[np.logical_and(start_t<roots, roots<end_t)]
+            if len(roots_in_interval) > 0:
+                check_points = [start_t, *roots_in_interval, end_t]
+            else:
+                check_points = [start_t, end_t]
+            
+            lambda_values = [ns.lambda_fun(c, u, v) for c in check_points]
+            arg_check = np.argmax(lambda_values)
+            lambda_arr.append(np.max(lambda_values))
+            idx += 1
+    else:
+        lambda_arr = []
+        while idx < len(time)-1:
+            cur_lambda = ns.lambda_fun(time[idx], u, v)
+            next_lambda = ns.lambda_fun(time[idx+1], u, v)
+            lambda_arr.append(np.max([cur_lambda, next_lambda]))
+            idx += 1
+
+    for idx, val in enumerate(lambda_arr):
+        if val == 0: 
+            lambda_arr[idx] = 1e-100
+
+    return np.array(lambda_arr)
+
+def correct_upperbounds(ns, u, v, time, roots, time_to_monotonicity):
     beta = ns.beta
     lambda_arr = []
     mon = time_to_monotonicity
@@ -141,6 +172,51 @@ def upperbounds(ns, u, v, time, roots, time_to_monotonicity):
     lambda_arr = np.array(lambda_arr)
     return lambda_arr
 
+def upperbounds(ns, u, v, time, roots, time_to_monotonicity):
+    beta = ns.beta
+    lambda_arr = []
+    mon = time_to_monotonicity
+    rcount=0
+    idx = 0
+
+    if len(mon)==0:
+        while idx < len(time)-1:
+            cur_lambda = ns.lambda_fun(time[idx], u, v)
+            next_lambda = ns.lambda_fun(time[idx+1], u, v)
+            lambda_arr.append(np.maximum(cur_lambda, next_lambda))
+            idx += 1
+    else:
+        while idx < len(time)-1:
+
+            if mon[idx] != mon[idx + 1]:
+                lambda_root = ns.lambda_fun(roots[rcount], u, v)
+                max_lambda = lambda_root
+
+                if mon[idx] == "dec":
+                    lambda_cur_t = ns.lambda_fun(time[idx], u, v)
+                    lambda_next_t = ns.lambda_fun(time[idx+1], u, v)
+                    max_lambda = np.maximum(lambda_cur_t, lambda_next_t)
+
+                lambda_arr.append(max_lambda)
+                rcount += 1
+            
+            elif mon[idx] == "inc":
+                lambda_next_t = ns.lambda_fun(time[idx+1], u, v)
+                lambda_arr.append(lambda_next_t)
+
+            elif mon[idx] == "dec":
+                lambda_cur_t = ns.lambda_fun(time[idx], u, v)
+                lambda_arr.append(lambda_cur_t)
+
+            idx += 1
+    
+    for idx, val in enumerate(lambda_arr):
+         if val == 0: 
+             lambda_arr[idx] = 1e-100
+
+    lambda_arr = np.array(lambda_arr)
+    return lambda_arr
+
 def nhpp(ns, u, v, time, upperbounds):
     beta = ns.beta
     interval = 0
@@ -162,6 +238,8 @@ def nhpp(ns, u, v, time, upperbounds):
 
             lambda_t = ns.lambda_fun(t, u, v)
             prob = lambda_t / upperbounds[interval]
+
+            curbound = upperbounds[interval]
 
             assert lambda_t <= upperbounds[interval], "Lambda value exceeds upperbound"
             assert prob <= 1, "Probability out of range >1"
@@ -187,16 +265,17 @@ def nhpp_mat(ns, time, root_matrix, monotonicity_matrix):
     ind = np.triu_indices(n_points, k=1)
     nhpp_mat = np.zeros(shape=(n_points, n_points), dtype=object)
 
-    for u, v in zip(ind[0], ind[1]):
-        r = root_matrix[u,v]
-        m = monotonicity_matrix[u,v]
+    for idx, (u, v) in enumerate(zip(ind[0], ind[1])):
+        if (idx+1) % 100 == 0:
+            print(f"Simulating: Node pair {idx+1} of {len(ind[0])}")
 
+        r = root_matrix[u,v]
+        #m = monotonicity_matrix[u,v]
         # map time to monotonicity
-        t2m = time_to_monotonicity(time, roots=r, monotonicity=m) 
+        #t2m = time_to_monotonicity(time, roots=r, monotonicity=m) 
         # find upperbounds for all time intervals
-        ubl = upperbounds(ns, u, v, time, roots=r, time_to_monotonicity=t2m)
-        if (u==0 and v==7):
-            var=True
+        #ubl = upperbounds(ns, u, v, time, roots=r, time_to_monotonicity=t2m)
+        ubl = new_upperbounds(ns, u, v, time, roots=r)
         # simulate nhpp
         nhpp_sim = nhpp(ns, u, v, time=time, upperbounds=ubl) 
 
@@ -228,33 +307,45 @@ if __name__ == "__main__":
     # z0 = ns.init_clusters(n_clusts, n_points, centers, radius)
     # v0, a0 = ns.init_dynamics(n_clusts, n_points, v, a)
     # ns.init_conditions(z0, v0, a0)
-
+    ZERO_SEED = 56
+    np.random.seed(ZERO_SEED)
+    torch.manual_seed(ZERO_SEED)
+    np.seterr(all='raise')
 
     # initialize system
     ns = NodeSpace()
-    n_clusts = 2
-    points_in_clusts = [1, 1]
-    n_points = sum(points_in_clusts)
-    centers = [[-6,0], [6,1]]
-    radius = [0,0]
-    v = [[2,0], [-2,0]]
-    a =  [[-0.25,0], [0.25,0]]
-    z0 = ns.init_clusters(n_clusts, points_in_clusts, centers, radius)
-    v0, a0 = ns.init_dynamics(n_clusts, points_in_clusts, v, a)
+    # n_clusts = 2
+    # points_in_clusts = [1, 1]
+    # n_points = sum(points_in_clusts)
+    # centers = [[-6,0], [6,1]]
+    # radius = [0,0]
+    # v = [[2,0], [-2,0]]
+    # a =  [[-0.25,0], [0.25,0]]
+    # z0 = ns.init_clusters(n_clusts, points_in_clusts, centers, radius)
+    # v0, a0 = ns.init_dynamics(n_clusts, points_in_clusts, v, a)
+    # ns.init_conditions(z0, v0, a0)
+    
+    z0 = np.array([[0.78637321, 3.47827956],
+       [2.12729336, 1.10409556]])
+    v0 = np.array([[-0.31056375,  0.42753374],
+       [-0.6289642 ,  0.06533717]])
+    a0 = np.array([[ 0.93103328,  0.71800528],
+       [-0.92851463,  0.54025625]])
     ns.init_conditions(z0, v0, a0)
-
+    
     # beta and alpha: lambda = exp(beta - alpha * dist)
     ns.beta = 5
-    ns.alpha = 1
 
-    #t = np.linspace(0, 15)
+    t = np.linspace(0,15)
+
+    print(t)
 
     # find roots
     rmat = root_matrix(ns) 
-
+    print(get_entry(rmat, 0, 1))
     #find monotonicity
     mmat = monotonicity_mat(ns, rmat) 
-    t = np.linspace(0, 15)
+    print(get_entry(mmat, 0, 1))
 
     # simulate
     nhppmat = nhpp_mat(ns=ns, time=t, root_matrix=rmat, monotonicity_matrix=mmat)
@@ -274,8 +365,17 @@ if __name__ == "__main__":
     print("Actual value (no. events):", len(e))
 
 
+#%%
 
-# %%
+# start_t = 0.30612244897959184
+# end_t = 0.6122448979591837
+# roots_in_interval = np.array([0.32380066, 0.53754378])
 
-np.random.uniform(2,5, 2)
-# %%
+# check_points = [start_t, *roots_in_interval, end_t]
+
+# lambda_values = [ns.lambda_fun(c, 0, 1) for c in check_points]
+# arg_check = np.argmax(lambda_values)
+
+# print(lambda_values)
+# print(arg_check)
+#
