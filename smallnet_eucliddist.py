@@ -172,11 +172,6 @@ class SmallNet(nn.Module):
         d = self.pdist(z_u, z_v)
         return d
 
-    def lambda_sq_fun(self, t, u, v):
-        z = self.step(t)
-        d = self.get_sq_dist(t, u, v)
-        return torch.exp(self.beta - d)
-
     def lambda_fun(self, t, u, v):
         z = self.step(t)
         d = self.get_dist(t, u, v)
