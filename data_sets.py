@@ -66,9 +66,11 @@ class SyntheticData(Dataset):
     def __len__(self):
         return len(self.data)
         
-    def __getitem__(self, index):
+    def __getitem__(self, index, col=None):
         return self.data[index]
     
+    def get_column(self, index, col):
+        return self.data[index][col]
 
 if __name__ == "__main__":
     wikipedia = SnapDataSet(SNAP_WIKIPEDIA)

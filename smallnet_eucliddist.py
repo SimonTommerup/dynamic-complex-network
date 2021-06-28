@@ -76,7 +76,9 @@ def batch_train(net, n_train, training_data, train_loader, test_data, num_epochs
         sum_ratio = 0.
         start_t = torch.tensor([0.0])
         for idx, batch in enumerate(train_loader):
-            print(f"Batch {idx+1} of {len(train_loader)}")
+            if (idx+1)==1 or (idx+1) % 100 == 0:
+                print(f"Batch {idx+1} of {len(train_loader)}")
+                
             net.train()
             optimizer.zero_grad()
             output, ratio = net(batch, t0=start_t, tn=batch[-1][2])
@@ -103,10 +105,10 @@ def batch_train(net, n_train, training_data, train_loader, test_data, num_epochs
             print(f"elapsed time: {current_time - start_time}" )
             print(f"train loss: {avg_train_loss}")
             print(f"test loss: {avg_test_loss}")
-            #print(f"train event to non-event ratio: {avg_train_ratio.item()}")
-            #print(f"test event to non-event-ratio: {test_ratio.item()}")
-            print("State dict:")
-            print(net.state_dict())
+            print(f"train event to non-event ratio: {avg_train_ratio.item()}")
+            print(f"test event to non-event-ratio: {test_ratio.item()}")
+            print("Beta:")
+            print(net.state_dict()["beta"])
         
         training_losses.append(avg_train_loss)
         test_losses.append(avg_test_loss)
@@ -137,6 +139,8 @@ def infer_beta(n_points, training_data):
     data=training_data
     n_events = []
     for u, v in zip(ind[0], ind[1]):
+        inner = torch.logical_and(data[:,0]==u, data[:,1]==v)
+        var = data[torch.logical_and(data[:,0]==u, data[:,1]==v)]
         event_matches = len(data[torch.logical_and(data[:,0]==u, data[:,1]==v)])
         n_events.append(event_matches)
 
@@ -197,7 +201,7 @@ class SmallNet(nn.Module):
 
         return int_lambda
 
-    def forward(self, data, t0, tn, weight=1):
+    def forward(self, data, t0, tn, weight=1e2):
         event_intensity = 0.
         non_event_intensity = 0.
         for u, v, event_time in data:
@@ -206,8 +210,10 @@ class SmallNet(nn.Module):
 
         # for u, v in zip(self.ind[0], self.ind[1]):
         #     non_event_intensity += self.evaluate_integral(u, v, t0, tn, self.z0, self.v0, beta=self.beta)
-        
-        for u, v in zip(self.ind[0], self.ind[1]):
+        sample_u = self.ind[0][torch.randperm(len(self.ind[0]))[:10]]
+        sample_v = self.ind[1][torch.randperm(len(self.ind[1]))[:10]]
+
+        for u, v in zip(sample_u, sample_v):
             non_event_intensity += self.monte_carlo_integral(u, v, t0, tn, n_samples=self.mc_samples)
         
         log_likelihood = event_intensity - weight*non_event_intensity
@@ -290,5 +296,3 @@ if __name__ == "__main__":
     batched, non_batched = integral_count(gt_net, training_data, training_batches)
     print(batched)
     print(non_batched)
-
-   

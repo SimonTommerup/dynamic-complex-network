@@ -12,9 +12,10 @@ from data_sets import SyntheticData
 from torch.utils import data
 
 # Load data set
-numpydata = np.load("200point-data_set.npy")
+data_set_path = "50point-event-beta=5" + "_data_set" + ".npy"
+numpydata = np.load(data_set_path)
 
-split_ratio = 0.9
+split_ratio = 0.975
 
 data_set = SyntheticData(numpydata=numpydata)
 
@@ -28,19 +29,22 @@ indices = [idx for idx in range(n)]
 train_indices = indices[:n_train]
 test_indices = indices[n_train:]
 
+n_points = 50
+init_beta = smallnet.infer_beta(n_points, data_set[:n_train])
+print("init_beta:", init_beta) 
+
 training_data = data.Subset(data_set, train_indices)
 test_data = data.Subset(data_set, test_indices)
-
-train_loader = data.DataLoader(training_data, batch_size=4096)
-
-n_points = 200
-# Method below yields init_beta = 2.8085 (gt=5), but may be too costly.
-#init_beta = smallnet.infer_beta(n_points, training_data)
-#print("init_beta:", init_beta) 
-init_beta = torch.tensor([2.8085])
+batch_size = 256
+train_loader = data.DataLoader(training_data, batch_size=batch_size)
 
 
-NUM_EPOCHS = 10
+
+
+#init_beta = torch.tensor([2.8085])
+
+
+NUM_EPOCHS = 20
 NUM_INITS = 1
 plt.ion()
 for initialization in range(1,NUM_INITS + 1):
@@ -50,13 +54,11 @@ for initialization in range(1,NUM_INITS + 1):
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-
-
     fpath = r"state_dicts/training_experiment"
-    fname = f"batch=141_LR=0.001_new_data_handle_montecarlo_integral_init_{seed}" + ".pth"
+    fname = f"batch={batch_size}_epochs={NUM_EPOCHS}_50_nodes_montecarlo_integral_init_{seed}" + ".pth"
     full_path = os.path.join(fpath, fname)
     
-    net = smallnet.SmallNet(n_points=n_points, init_beta=init_beta, mc_samples=1)
+    net = smallnet.SmallNet(n_points=n_points, init_beta=init_beta, mc_samples=5)
     
     # if load previous
     #net.load_state_dict(torch.load(full_path))
@@ -73,5 +75,4 @@ for initialization in range(1,NUM_INITS + 1):
     
     torch.save(net.state_dict(), full_path)
 
-
-
+    
