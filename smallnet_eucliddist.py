@@ -155,7 +155,7 @@ class SmallNet(nn.Module):
         self.beta = nn.Parameter(torch.tensor([[init_beta]]))
         self.z0 = nn.Parameter(torch.rand(size=(n_points,2)))
         self.v0 = nn.Parameter(torch.rand(size=(n_points,2)))
-        self.a0 = torch.zeros(size=(n_points,2))
+        self.a0 = nn.Parameter(torch.rand(size=(n_points,2)))
         self.n_points = n_points
         self.ind = torch.triu_indices(row=self.n_points, col=self.n_points, offset=1)
         self.pdist = nn.PairwiseDistance(p=2) # euclidean
