@@ -400,10 +400,10 @@ class SmallNet(nn.Module):
         d = self.get_sq_dist(t, u, v)
         return torch.exp(self.beta - d)
 
-    def lambda_fun(self, t, u, v):
-        z = self.step(t)
-        d = self.get_dist(t, u, v)
-        return torch.exp(self.beta - d)
+    # def lambda_fun(self, t, u, v):
+    #     z = self.step(t)
+    #     d = self.get_dist(t, u, v)
+    #     return torch.exp(self.beta - d)
 
     def evaluate_integral(self, i, j, t0, tn, z, v, beta):
         a = z[i,0] - z[j,0]
@@ -417,7 +417,7 @@ class SmallNet(nn.Module):
         int_lambda = 0.
 
         for t_i in sample_times:
-            int_lambda += self.lambda_fun(t_i, i, j)
+            int_lambda += self.lambda_sq_fun(t_i, i, j)
 
         interval_length = tn-t0
         int_lambda = interval_length * (1 / n_samples) * int_lambda
@@ -431,11 +431,11 @@ class SmallNet(nn.Module):
             u, v = to_long(u, v) # cast to int for indexing
             event_intensity += self.beta - self.get_sq_dist(event_time, u, v)
 
-        for u, v in zip(self.ind[0], self.ind[1]):
-            non_event_intensity += self.evaluate_integral(u, v, t0, tn, self.z0, self.v0, beta=self.beta)
-        
         # for u, v in zip(self.ind[0], self.ind[1]):
-        #     non_event_intensity += self.monte_carlo_integral(u, v, t0, tn, n_samples=10)
+        #     non_event_intensity += self.evaluate_integral(u, v, t0, tn, self.z0, self.v0, beta=self.beta)
+        
+        for u, v in zip(self.ind[0], self.ind[1]):
+            non_event_intensity += self.monte_carlo_integral(u, v, t0, tn, n_samples=10)
         
         log_likelihood = event_intensity - weight*non_event_intensity
         ratio = event_intensity / (weight*non_event_intensity)
