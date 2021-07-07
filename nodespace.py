@@ -92,6 +92,18 @@ class NodeSpace():
         a0 = np.random.uniform(-1, 1, size=(n_points, 2))
         return v0, a0
 
+    def custom_init_dynamics(self, n_points, labels, vdir, adir):
+        v0 = np.zeros(shape=(n_points, 2))
+        a0 = np.zeros(shape=(n_points, 2))
+
+        for idx, label in enumerate(labels):
+            #noise = np.random.normal(loc=0.0, scale=1e-3, size=(2,2))
+            noise = np.zeros(shape=(2,2))
+            v0[idx,:] = vdir[label] + noise[0]
+            a0[idx,:] = adir[label] + noise[1]
+
+        return v0, a0
+
     def init_points(self, n, center, rad):
         points = []
         for node in range(n):

@@ -146,6 +146,42 @@ def single_batch_train_track_mse(res_gt, track_nodes, net, n_train, training_dat
     
     return net, training_losses, test_losses, track_dict
 
+def single_batch_train_track_grads(net, lr, training_data):
+    optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+    tn_train = training_data[-1][2] 
+
+    batch_size = torch.tensor([len(training_data)])
+
+    track_dict = {
+        "mse_train_losses":[], 
+        "mse_test_losses":[],
+        "bgrad":[],
+        "vgrad":[],
+        "zgrad":[]}
+
+    net.train()
+    optimizer.zero_grad()
+    output, train_ratio = net(training_data, t0=0, tn=tn_train)
+    loss = nll(output)
+
+    loss.backward()
+
+    # for p in net.parameters():
+    #     p.grad = p.grad / batch_size
+    net.z0.grad = net.z0.grad / batch_size
+    net.beta.grad = net.beta.grad / (batch_size*net.n_points)
+
+    bgrad = torch.mean(torch.abs(net.beta.grad.clone()))
+    zgrad = torch.mean(torch.abs(net.z0.grad.clone()))
+    vgrad = torch.mean(torch.abs(net.v0.grad.clone()))
+
+
+    track_dict["bgrad"].append(torch.mean(bgrad.detach().clone()))
+    track_dict["zgrad"].append(torch.mean(zgrad.detach().clone()))
+    track_dict["vgrad"].append(torch.mean(vgrad.detach().clone()))
+    
+    return net, track_dict
+
 def batch_train(net, n_train, train_batches, test_data, num_epochs):
     optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
     training_losses = []
@@ -181,15 +217,15 @@ def batch_train(net, n_train, train_batches, test_data, num_epochs):
         avg_test_loss = test_loss / n_test
         current_time = time.time()
 
-        if epoch == 0 or (epoch+1) % 5 == 0:
-            print(f"Epoch {epoch+1}")
-            print(f"elapsed time: {current_time - start_time}" )
-            print(f"train loss: {avg_train_loss}")
-            print(f"test loss: {avg_test_loss}")
-            print(f"train event to non-event ratio: {avg_train_ratio.item()}")
-            print(f"test event to non-event-ratio: {test_ratio.item()}")
-            #print("State dict:")
-            #print(net.state_dict())
+        #if epoch == 0 or (epoch+1) % 5 == 0:
+        print(f"Epoch {epoch+1}")
+        print(f"elapsed time: {current_time - start_time}" )
+        print(f"train loss: {avg_train_loss}")
+        print(f"test loss: {avg_test_loss}")
+        print(f"train event to non-event ratio: {avg_train_ratio.item()}")
+        print(f"test event to non-event-ratio: {test_ratio.item()}")
+        print("State dict:")
+        print(net.state_dict())
         
         training_losses.append(avg_train_loss)
         test_losses.append(avg_test_loss)
@@ -233,12 +269,18 @@ def batch_train_track_mse(res_gt, track_nodes, net, n_train, train_batches, test
             loss = nll(output)
             loss.backward()
 
+            #net.beta.grad = net.beta.grad/10.0
+            #net.v0.grad = net.v0.grad / 10.0
+            #clip_value=30.0
+            #torch.nn.utils.clip_grad_norm_(net.parameters(), clip_value)
+
             batch_bgrad = torch.mean(torch.abs(net.beta.grad))
             batch_zgrad = torch.mean(torch.abs(net.z0.grad))
             batch_vgrad = torch.mean(torch.abs(net.v0.grad))
             epoch_bgrad.append(batch_bgrad)
             epoch_zgrad.append(batch_zgrad)
             epoch_vgrad.append(batch_vgrad)
+
 
             optimizer.step()
 
@@ -251,10 +293,10 @@ def batch_train_track_mse(res_gt, track_nodes, net, n_train, train_batches, test
             res_train = []
             res_test = []
             for ti in np.linspace(0, tn_train):
-                res_train.append(net.lambda_sq_fun(ti, track_nodes[0], track_nodes[1]))
+                res_train.append(net.lambda_fun(ti, track_nodes[0], track_nodes[1]))
             
             for ti in np.linspace(tn_train, tn_test):
-                res_test.append(net.lambda_sq_fun(ti, track_nodes[0], track_nodes[1]))
+                res_test.append(net.lambda_fun(ti, track_nodes[0], track_nodes[1]))
             
             res_train = torch.tensor(res_train)
             res_test = torch.tensor(res_test)
@@ -270,17 +312,17 @@ def batch_train_track_mse(res_gt, track_nodes, net, n_train, train_batches, test
         avg_test_loss = test_loss / n_test
         current_time = time.time()
 
-        if epoch == 0 or (epoch+1) % 5 == 0:
-            print(f"Epoch {epoch+1}")
-            print(f"elapsed time: {current_time - start_time}" )
-            print(f"train loss: {avg_train_loss}")
-            print(f"test loss: {avg_test_loss}")
-            print(f"mse train loss {mse_train}")
-            print(f"mse test loss {mse_test}")
+        # if epoch == 0 or (epoch+1) % 5 == 0:
+        print(f"Epoch {epoch+1}")
+        print(f"elapsed time: {current_time - start_time}" )
+        print(f"train loss: {avg_train_loss}")
+        print(f"test loss: {avg_test_loss}")
+        print(f"mse train loss / n_train {mse_train/n_train}")
+        print(f"mse test loss / n_test {mse_test/n_test}")
             #print(f"train event to non-event ratio: {avg_train_ratio.item()}")
             #print(f"test event to non-event-ratio: {test_ratio.item()}")
-            #print("State dict:")
-            #print(net.state_dict())
+        print("State dict:")
+        print(net.state_dict())
         
         training_losses.append(avg_train_loss)
         test_losses.append(avg_test_loss)
@@ -328,8 +370,8 @@ class SmallNet(nn.Module):
     def __init__(self, n_points, init_beta):
         super().__init__()
         self.beta = nn.Parameter(torch.tensor([[init_beta]]))
-        self.z0 = nn.Parameter(torch.rand(size=(n_points,2)))
-        self.v0 = nn.Parameter(torch.rand(size=(n_points,2)))
+        self.z0 = nn.Parameter(torch.rand(size=(n_points,2))*0.5) # HALF RAND !!!
+        self.v0 = nn.Parameter(torch.rand(size=(n_points,2))*0.5) # HALF RAND !!!
         self.a0 = torch.zeros(size=(n_points,2))
         self.n_points = n_points
         self.ind = torch.triu_indices(row=self.n_points, col=self.n_points, offset=1)
@@ -393,7 +435,7 @@ class SmallNet(nn.Module):
             non_event_intensity += self.evaluate_integral(u, v, t0, tn, self.z0, self.v0, beta=self.beta)
         
         # for u, v in zip(self.ind[0], self.ind[1]):
-        #     non_event_intensity += self.monte_carlo_integral(u, v, t0, tn, n_samples=5)
+        #     non_event_intensity += self.monte_carlo_integral(u, v, t0, tn, n_samples=10)
         
         log_likelihood = event_intensity - weight*non_event_intensity
         ratio = event_intensity / (weight*non_event_intensity)

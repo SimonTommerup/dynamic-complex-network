@@ -57,6 +57,10 @@ for row in data_set:
 
 
 #np.save("4-point-data-set.npy", data_set)
+verify_data = np.load("4-point-data-set.npy", allow_pickle=True)
+
+print("Simulated: ", data_set[0])
+print("Saved: ", verify_data[0])
 
 data_set = torch.from_numpy(data_set)
 num_train_samples = int(len(data_set)*0.8)
@@ -72,7 +76,8 @@ print("init_beta:", init_beta)
 
 training_batches = np.array_split(training_data, 450)
 
-print("Batch size:", len(training_batches[0]))
+batch_size = len(training_batches[0])
+print("Batch size:", batch_size)
 
 
 z_gt = np.array([[-0.6, 0.], [0.6, 0.1], [0.,0.6], [0.,-0.6]])
@@ -86,7 +91,7 @@ gt_dict["v0"] = gt_v
 gt_net.load_state_dict(gt_dict)
 gt_nt = gt_net.eval()
 
-track_nodes=[2,3]
+track_nodes=[0,3]
 tn_train = training_batches[-1][-1][2] # last time point in training data
 tn_test = test_data[-1][2] # last time point in test data
 
@@ -119,7 +124,7 @@ def plotgrad(num_epochs, bgrad, zgrad, vgrad):
 
 res_gt=[getres(0, tn_train, gt_net, track_nodes), getres(tn_train, tn_test, gt_net, track_nodes)]    
 
-NUM_EPOCHS = 50
+NUM_EPOCHS = 11
 NUM_INITS = 1
 plt.ion()
 for initialization in range(1,NUM_INITS + 1):
@@ -129,10 +134,8 @@ for initialization in range(1,NUM_INITS + 1):
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-
-
     fpath = r"state_dicts/training_experiment"
-    fname = f"track_batch=ntrain_LR=0.025_exact_integral_clip_grad=30_init_{seed}" + ".pth"
+    fname = f"batch={batch_size}_LR=0.001_reproduce_result_{seed}" + ".pth"
     full_path = os.path.join(fpath, fname)
     
     net = smallnet.SmallNet(n_points=n_points, init_beta=init_beta)
@@ -141,9 +144,9 @@ for initialization in range(1,NUM_INITS + 1):
     #net.load_state_dict(torch.load(full_path))
 
     #net, train_loss, test_loss = smallnet.single_batch_train(net, num_train_samples, training_data, test_data, NUM_EPOCHS)
-    net, train_loss, test_loss, track_dict = smallnet.single_batch_train_track_mse(res_gt, track_nodes, net, num_train_samples, training_data, test_data, NUM_EPOCHS)
+    #net, train_loss, test_loss, track_dict = smallnet.single_batch_train_track_mse(res_gt, track_nodes, net, num_train_samples, training_data, test_data, NUM_EPOCHS)
     #net, train_loss, test_loss = smallnet.batch_train(net, n_train, training_batches, test_data, NUM_EPOCHS)
-    #net, train_loss, test_loss, track_dict = smallnet.batch_train_track_mse(res_gt, track_nodes, net, n_train, training_batches, test_data, NUM_EPOCHS)
+    net, train_loss, test_loss, track_dict = smallnet.batch_train_track_mse(res_gt, track_nodes, net, n_train, training_batches, test_data, NUM_EPOCHS)
 
     plotres(NUM_EPOCHS, train_loss, test_loss, "LL Loss")
     plotres(NUM_EPOCHS, track_dict["mse_train_losses"], track_dict["mse_test_losses"], "MSE Loss")
@@ -151,5 +154,5 @@ for initialization in range(1,NUM_INITS + 1):
     
     torch.save(net.state_dict(), full_path)
 
-    compare_rates.compare_intensity_rates(net, ns_gt, 2, 3, full_path, training_data, test_data)
+    compare_rates.compare_intensity_rates(net, ns_gt, 0, 3, full_path, training_data, test_data)
     
