@@ -19,8 +19,8 @@ def single_batch_train(net, n_train, training_data, test_data, num_epochs):
     optimizer = torch.optim.Adam(net.parameters(), lr=0.025)
     training_losses = []
     test_losses = []
-    tn_train = training_data[-1][2] # last time point in training data
-    tn_test = test_data[-1][2] # last time point in test data
+    tn_train = training_data[-1][-1] # last time point in training data
+    tn_test = test_data[-1][-1] # last time point in test data
     n_test = len(test_data)
 
     for epoch in range(num_epochs):
@@ -66,8 +66,8 @@ def batch_train(net, n_train, training_data, train_loader, test_data, num_epochs
     optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
     training_losses = []
     test_losses = []
-    tn_train = training_data[-1][2] # last time point in training data
-    tn_test = test_data[-1][2] # last time point in test data
+    tn_train = training_data[-1][-1] # last time point in training data
+    tn_test = test_data[-1][-1] # last time point in test data
     n_test = len(test_data)
 
     for epoch in range(num_epochs):
@@ -85,6 +85,9 @@ def batch_train(net, n_train, training_data, train_loader, test_data, num_epochs
             loss = nll(output)
             loss.backward()
 
+            clip_value = 30.0 
+            torch.nn.utils.clip_grad_norm_(net.parameters(), clip_value)
+
             optimizer.step()
 
             running_loss += loss.item()
@@ -101,7 +104,7 @@ def batch_train(net, n_train, training_data, train_loader, test_data, num_epochs
         avg_test_loss = test_loss / n_test
         current_time = time.time()
 
-        if epoch == 0 or (epoch+1) % 5 == 0:
+        if epoch == 0 or (epoch+1) % 1 == 0:
             print(f"Epoch {epoch+1}")
             print(f"elapsed time: {current_time - start_time}" )
             print(f"train loss: {avg_train_loss}")
@@ -116,8 +119,8 @@ def batch_train(net, n_train, training_data, train_loader, test_data, num_epochs
     
     return net, training_losses, test_losses
 
-def batch_train_track_mse(res_gt, track_nodes, net, n_train,train_data, train_batches, test_data, num_epochs):
-    optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
+def batch_train_track_mse(res_gt, track_nodes, net, n_train, train_batches, test_data, num_epochs):
+    optimizer = torch.optim.Adam([p for p in net.parameters() if p.requires_grad==True], lr=0.001)
     training_losses = []
     test_losses = []
     mse_train_losses = []
@@ -131,8 +134,8 @@ def batch_train_track_mse(res_gt, track_nodes, net, n_train,train_data, train_ba
         "zgrad":[],
         "agrad":[]}
 
-    tn_train = train_data[-1][2].item() # last time point in training data
-    tn_test = test_data[-1][2].item() # last time point in test data
+    tn_train = train_batches[-1][-1][2] # last time point in training data
+    tn_test = test_data[-1][2] # last time point in test data
     n_test = len(test_data)
 
 
@@ -146,15 +149,19 @@ def batch_train_track_mse(res_gt, track_nodes, net, n_train,train_data, train_ba
         epoch_zgrad=[]
         epoch_vgrad=[]
         epoch_agrad=[]
-
+        
+        net.train()
         for idx, batch in enumerate(train_batches):
-            if (idx + 1) % 100 == 0:
+            if (idx+1) == 0 or (idx + 1) % 250 == 0:
                 print(f"Batch {idx+1} of {len(train_batches)}")
-            net.train()
+
             optimizer.zero_grad()
             output, ratio = net(batch, t0=start_t, tn=batch[-1][2])
             loss = nll(output)
             loss.backward()
+
+            clip_value = 30.0 
+            torch.nn.utils.clip_grad_norm_(net.parameters(), clip_value)
 
             batch_bgrad = torch.mean(torch.abs(net.beta.grad))
             batch_zgrad = torch.mean(torch.abs(net.z0.grad))
@@ -164,6 +171,8 @@ def batch_train_track_mse(res_gt, track_nodes, net, n_train,train_data, train_ba
             epoch_zgrad.append(batch_zgrad)
             epoch_vgrad.append(batch_vgrad)
             epoch_agrad.append(batch_agrad)
+
+
 
             optimizer.step()
 
@@ -204,8 +213,8 @@ def batch_train_track_mse(res_gt, track_nodes, net, n_train,train_data, train_ba
             print(f"mse test loss {mse_test}")
             #print(f"train event to non-event ratio: {avg_train_ratio.item()}")
             #print(f"test event to non-event-ratio: {test_ratio.item()}")
-            #print("State dict:")
-            #print(net.state_dict())
+            print("State dict:")
+            print(net.state_dict())
         
         training_losses.append(avg_train_loss)
         test_losses.append(avg_test_loss)
@@ -253,17 +262,26 @@ def infer_beta(n_points, training_data):
 
 
 class SmallNet(nn.Module):
-    def __init__(self, n_points, init_beta, mc_samples, non_event_weight=1):
+    def __init__(self, n_points, init_beta, riemann_samples, node_pair_samples, non_intensity_weight=1):
         super().__init__()
-        self.beta = nn.Parameter(torch.tensor([[init_beta]]))
-        self.z0 = nn.Parameter(torch.rand(size=(n_points,2)))
-        self.v0 = nn.Parameter(torch.rand(size=(n_points,2)))
-        self.a0 = nn.Parameter(torch.rand(size=(n_points,2)))
+        self.beta = nn.Parameter(torch.tensor([[init_beta]]),requires_grad=True)
+        #self.z0 = nn.Parameter(torch.zeros(size=(n_points,2)),requires_grad=True) # ZERO INIT
+        #self.v0 = nn.Parameter(torch.zeros(size=(n_points,2)),requires_grad=True)
+        #self.a0 = nn.Parameter(torch.zeros(size=(n_points,2)),requires_grad=False)
+
+        self.z0 = nn.Parameter(self.init_parameter(torch.zeros(size=(n_points,2)))) 
+        self.v0 = nn.Parameter(self.init_parameter(torch.zeros(size=(n_points,2))))
+        self.a0 = nn.Parameter(self.init_parameter(torch.zeros(size=(n_points,2))))
+
         self.n_points = n_points
         self.ind = torch.triu_indices(row=self.n_points, col=self.n_points, offset=1)
         self.pdist = nn.PairwiseDistance(p=2) # euclidean
-        self.mc_samples=mc_samples
-        self.non_event_weight = non_event_weight
+        self.integral_samples=riemann_samples
+        self.node_pair_samples = node_pair_samples
+        self.non_event_weight = non_intensity_weight
+
+    def init_parameter(self, tensor):
+        return torch.nn.init.normal_(tensor, mean=0.0, std=0.001)
 
     def step(self, t):
         self.z = self.z0[:,:] + self.v0[:,:]*t + 0.5*self.a0[:,:]*t**2
@@ -281,6 +299,18 @@ class SmallNet(nn.Module):
         d = self.get_dist(t, u, v)
         return torch.exp(self.beta - d)
 
+    def riemann_sum(self, i, j, t0, tn, n_samples):
+        # https://secure.math.ubc.ca/~pwalls/math-python/integration/riemann-sums/
+        x = torch.linspace(t0.item(), tn.item(), n_samples+1)
+        x_mid = (x[:-1]+x[1:])/2
+        dx = (tn - t0) / n_samples
+        rsum = torch.zeros(size=(1,1))
+
+        for x_i in x_mid:
+            rsum += self.lambda_fun(x_i, i, j) * dx
+        
+        return rsum
+
     def monte_carlo_integral(self, i, j, t0, tn, n_samples):
         sample_times = np.random.uniform(t0, tn, n_samples)
         int_lambda = 0.
@@ -293,21 +323,37 @@ class SmallNet(nn.Module):
 
         return int_lambda
 
+    def get_unique_links(self, batched_data):
+        unique_links = torch.unique(batched_data[:,:-1], dim=0)
+        return unique_links
+
     def forward(self, data, t0, tn):
         event_intensity = 0.
         non_event_intensity = 0.
+
+        # if the bathc size = 10
+        # then there are 10 nodes pairs possibly different
+
+        # BATCH
+        # (0, 1, 0)    batch t0 = 0
+        # (2, 5, 4.3)
+        # (2, 3, 6.5)  batch tn = 6.5
+
         for u, v, event_time in data:
             u, v = to_long(u, v) # cast to int for indexing
             event_intensity += self.beta - self.get_dist(event_time, u, v)
 
-        # for u, v in zip(self.ind[0], self.ind[1]):
-        #     non_event_intensity += self.evaluate_integral(u, v, t0, tn, self.z0, self.v0, beta=self.beta)
-        sample_u = self.ind[0][torch.randperm(len(self.ind[0]))[:10]]
-        sample_v = self.ind[1][torch.randperm(len(self.ind[1]))[:10]]
+        # Random sample nodes, create block e.g 6x6
+        # if batch size = 10
+        # then 50 non-links
+
+        permutation = torch.randperm(self.n_points)[self.node_pair_samples*2]
+        sample_u = permutation[:self.node_pair_samples]
+        sample_v = permutation[self.node_pair_samples:]
 
         for u, v in zip(sample_u, sample_v):
-            non_event_intensity += self.monte_carlo_integral(u, v, t0, tn, n_samples=self.mc_samples)
-        
+            non_event_intensity += self.riemann_sum(u, v, t0, tn, n_samples=self.integral_samples)
+
         log_likelihood = event_intensity - self.non_event_weight*non_event_intensity
         ratio = event_intensity / (self.non_event_weight*non_event_intensity)
 
