@@ -61,7 +61,6 @@ def single_batch_train(net, n_train, training_data, test_data, num_epochs):
     
     return net, training_losses, test_losses
 
-
 def batch_train(net, n_train, training_data, train_loader, test_data, num_epochs):
     optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
     training_losses = []
@@ -73,7 +72,6 @@ def batch_train(net, n_train, training_data, train_loader, test_data, num_epochs
     for epoch in range(num_epochs):
         start_time = time.time()
         running_loss = 0.
-        sum_ratio = 0.
         start_t = torch.tensor([0.0])
         for idx, batch in enumerate(train_loader):
             if (idx+1)==1 or (idx+1) % 100 == 0:
@@ -81,7 +79,8 @@ def batch_train(net, n_train, training_data, train_loader, test_data, num_epochs
                 
             net.train()
             optimizer.zero_grad()
-            output, ratio = net(batch, t0=start_t, tn=batch[-1][2])
+
+            output = net(batch, t0=start_t, tn=batch[-1][2])
             loss = nll(output)
             loss.backward()
 
@@ -91,16 +90,14 @@ def batch_train(net, n_train, training_data, train_loader, test_data, num_epochs
             optimizer.step()
 
             running_loss += loss.item()
-            sum_ratio += ratio
             start_t = batch[-1][2]
 
         net.eval()
         with torch.no_grad():
-            test_output, test_ratio = net(test_data, t0=tn_train, tn=tn_test)
+            test_output = net(test_data, t0=tn_train, tn=tn_test)
             test_loss = nll(test_output).item()
                 
         avg_train_loss = running_loss / n_train
-        avg_train_ratio = sum_ratio / len(train_loader)
         avg_test_loss = test_loss / n_test
         current_time = time.time()
 
@@ -109,10 +106,62 @@ def batch_train(net, n_train, training_data, train_loader, test_data, num_epochs
             print(f"elapsed time: {current_time - start_time}" )
             print(f"train loss: {avg_train_loss}")
             print(f"test loss: {avg_test_loss}")
-            print(f"train event to non-event ratio: {avg_train_ratio.item()}")
-            print(f"test event to non-event-ratio: {test_ratio.item()}")
-            print("Beta:")
-            print(net.state_dict()["beta"])
+        
+        training_losses.append(avg_train_loss)
+        test_losses.append(avg_test_loss)
+    
+    return net, training_losses, test_losses
+
+def batch_train_scheduled(net, n_train, training_data, train_loader, test_data, num_epochs):
+    optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=1)
+    training_losses = []
+    test_losses = []
+    tn_train = training_data[-1][-1] # last time point in training data
+    tn_test = test_data[-1][-1] # last time point in test data
+    iters = len(train_loader)
+    n_test = len(test_data)
+
+    for epoch in range(num_epochs):
+        start_time = time.time()
+        running_loss = 0.
+        start_t = torch.tensor([0.0])
+        for idx, batch in enumerate(train_loader):
+            if (idx+1)==1 or (idx+1) % 100 == 0:
+                print(f"Batch {idx+1} of {len(train_loader)}")
+                
+            net.train()
+            optimizer.zero_grad()
+
+            output = net(batch, t0=start_t, tn=batch[-1][2])
+            loss = nll(output)
+            loss.backward()
+
+            clip_value = 30.0 
+            torch.nn.utils.clip_grad_norm_(net.parameters(), clip_value)
+
+            optimizer.step()
+            scheduler.step(epoch + idx / iters)
+
+            running_loss += loss.item()
+            start_t = batch[-1][2]
+
+        print(f"Epoch {epoch+1} Last LR: {scheduler.get_last_lr()}")
+
+        net.eval()
+        with torch.no_grad():
+            test_output = net(test_data, t0=tn_train, tn=tn_test)
+            test_loss = nll(test_output).item()
+                
+        avg_train_loss = running_loss / n_train
+        avg_test_loss = test_loss / n_test
+        current_time = time.time()
+
+        if epoch == 0 or (epoch+1) % 1 == 0:
+            print(f"Epoch {epoch+1}")
+            print(f"elapsed time: {current_time - start_time}" )
+            print(f"train loss: {avg_train_loss}")
+            print(f"test loss: {avg_test_loss}")
         
         training_losses.append(avg_train_loss)
         test_losses.append(avg_test_loss)
@@ -274,6 +323,8 @@ class SmallNet(nn.Module):
         self.a0 = nn.Parameter(self.init_parameter(torch.zeros(size=(n_points,2))))
 
         self.n_points = n_points
+        self.n_node_pairs = n_points*(n_points-1) // 2
+
         self.ind = torch.triu_indices(row=self.n_points, col=self.n_points, offset=1)
         self.pdist = nn.PairwiseDistance(p=2) # euclidean
         self.integral_samples=riemann_samples
@@ -347,17 +398,14 @@ class SmallNet(nn.Module):
         # if batch size = 10
         # then 50 non-links
 
-        permutation = torch.randperm(self.n_points)[self.node_pair_samples*2]
-        sample_u = permutation[:self.node_pair_samples]
-        sample_v = permutation[self.node_pair_samples:]
-
-        for u, v in zip(sample_u, sample_v):
+        triu_samples = torch.randperm(self.n_node_pairs)[:self.node_pair_samples]
+        for idx in triu_samples:
+            u, v = self.ind[0][idx], self.ind[1][idx]
             non_event_intensity += self.riemann_sum(u, v, t0, tn, n_samples=self.integral_samples)
 
         log_likelihood = event_intensity - self.non_event_weight*non_event_intensity
-        ratio = event_intensity / (self.non_event_weight*non_event_intensity)
 
-        return log_likelihood, ratio
+        return log_likelihood
 
 
 if __name__ == "__main__":
