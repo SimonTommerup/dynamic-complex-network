@@ -15,5 +15,5 @@ The algorithms for simulating data are in the simulation folder.
 The used data sets are in the data folder.
 
 The results generating scripts
-are available in the results folder, and with a little changing of paths and rearringing of files it should hopefully be possible to run these
+are available in the results folder, and with a little changing of paths and rearranging of files it should hopefully be possible to run these
 scripts without too many complications.
