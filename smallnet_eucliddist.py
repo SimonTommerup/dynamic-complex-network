@@ -122,6 +122,9 @@ def batch_train_scheduled(net, n_train, training_data, train_loader, test_data, 
     iters = len(train_loader)
     n_test = len(test_data)
 
+    best_loss = torch.tensor([1e100])
+    save_path = r"state_dicts/training_experiment/hospital_best_state.pth"
+
     for epoch in range(num_epochs):
         start_time = time.time()
         running_loss = 0.
@@ -157,6 +160,12 @@ def batch_train_scheduled(net, n_train, training_data, train_loader, test_data, 
         avg_test_loss = test_loss / n_test
         current_time = time.time()
 
+        if avg_test_loss < best_loss:
+            print("Lowest test loss.")
+            #print(f"Saved model state_dict to {save_path}.")
+            #best_loss = avg_test_loss
+            #torch.save(net.state_dict(), save_path)
+
         if epoch == 0 or (epoch+1) % 1 == 0:
             print(f"Epoch {epoch+1}")
             print(f"elapsed time: {current_time - start_time}" )
@@ -166,7 +175,7 @@ def batch_train_scheduled(net, n_train, training_data, train_loader, test_data, 
         training_losses.append(avg_train_loss)
         test_losses.append(avg_test_loss)
     
-    return net, training_losses, test_losses
+    return net, training_losses, test_losses, optimizer
 
 def batch_train_track_mse(res_gt, track_nodes, net, n_train, train_batches, test_data, num_epochs):
     optimizer = torch.optim.Adam([p for p in net.parameters() if p.requires_grad==True], lr=0.001)
@@ -205,7 +214,7 @@ def batch_train_track_mse(res_gt, track_nodes, net, n_train, train_batches, test
                 print(f"Batch {idx+1} of {len(train_batches)}")
 
             optimizer.zero_grad()
-            output, ratio = net(batch, t0=start_t, tn=batch[-1][2])
+            output = net(batch, t0=start_t, tn=batch[-1][2])
             loss = nll(output)
             loss.backward()
 
@@ -226,7 +235,6 @@ def batch_train_track_mse(res_gt, track_nodes, net, n_train, train_batches, test
             optimizer.step()
 
             running_loss += loss.item()
-            sum_ratio += ratio
             start_t = batch[-1][2]
 
         net.eval()
@@ -245,11 +253,10 @@ def batch_train_track_mse(res_gt, track_nodes, net, n_train, train_batches, test
             mse_train = torch.mean((res_gt[0]-res_train)**2)
             mse_test = torch.mean((res_gt[1]-res_test)**2)
             
-            test_output, test_ratio = net(test_data, t0=tn_train, tn=tn_test)
+            test_output = net(test_data, t0=tn_train, tn=tn_test)
             test_loss = nll(test_output).item()
                 
         avg_train_loss = running_loss / n_train
-        avg_train_ratio = sum_ratio / len(train_batches)
         avg_test_loss = test_loss / n_test
         current_time = time.time()
 
@@ -311,16 +318,23 @@ def infer_beta(n_points, training_data):
 
 
 class SmallNet(nn.Module):
-    def __init__(self, n_points, init_beta, riemann_samples, node_pair_samples, non_intensity_weight=1):
+    def __init__(self, pars_mode, n_points, init_beta, riemann_samples, node_pair_samples, non_intensity_weight=1):
         super().__init__()
-        self.beta = nn.Parameter(torch.tensor([[init_beta]]),requires_grad=True)
-        #self.z0 = nn.Parameter(torch.zeros(size=(n_points,2)),requires_grad=True) # ZERO INIT
-        #self.v0 = nn.Parameter(torch.zeros(size=(n_points,2)),requires_grad=True)
-        #self.a0 = nn.Parameter(torch.zeros(size=(n_points,2)),requires_grad=False)
 
-        self.z0 = nn.Parameter(self.init_parameter(torch.zeros(size=(n_points,2)))) 
-        self.v0 = nn.Parameter(self.init_parameter(torch.zeros(size=(n_points,2))))
-        self.a0 = nn.Parameter(self.init_parameter(torch.zeros(size=(n_points,2))))
+        self.beta = nn.Parameter(torch.tensor([[init_beta]]), requires_grad=True)
+        self.z0 = nn.Parameter(self.init_parameter(torch.zeros(size=(n_points,2))), requires_grad=False)
+        self.v0 = nn.Parameter(self.init_parameter(torch.zeros(size=(n_points,2))), requires_grad=False)
+        self.a0 = nn.Parameter(self.init_parameter(torch.zeros(size=(n_points,2))), requires_grad=False)
+
+        if pars_mode == 1:
+            self.z0 = nn.Parameter(self.init_parameter(self.z0), requires_grad=True)
+        elif pars_mode == 2:
+            self.z0 = nn.Parameter(self.init_parameter(self.z0), requires_grad=True)
+            self.v0 = nn.Parameter(self.init_parameter(self.v0), requires_grad=True)
+        elif pars_mode == 3:
+            self.z0 = nn.Parameter(self.init_parameter(self.z0), requires_grad=True)
+            self.v0 = nn.Parameter(self.init_parameter(self.v0), requires_grad=True)
+            self.a0 = nn.Parameter(self.init_parameter(self.a0), requires_grad=True)
 
         self.n_points = n_points
         self.n_node_pairs = n_points*(n_points-1) // 2
@@ -331,8 +345,14 @@ class SmallNet(nn.Module):
         self.node_pair_samples = node_pair_samples
         self.non_event_weight = non_intensity_weight
 
+    def init_beta(self, tensor):
+        return torch.nn.init.uniform_(tensor, a=0, b=0.025)
+
     def init_parameter(self, tensor):
-        return torch.nn.init.normal_(tensor, mean=0.0, std=0.001)
+        #a,b = shape, r1,r2 = range
+        #torch.FloatTensor(1, 1).uniform_(-0.025, 0.025)
+        #return torch.nn.init.normal_(tensor, mean=0.0, std=0.025)
+        return torch.nn.init.uniform_(tensor, a=-0.025, b=0.025)
 
     def step(self, t):
         self.z = self.z0[:,:] + self.v0[:,:]*t + 0.5*self.a0[:,:]*t**2
@@ -382,21 +402,9 @@ class SmallNet(nn.Module):
         event_intensity = 0.
         non_event_intensity = 0.
 
-        # if the bathc size = 10
-        # then there are 10 nodes pairs possibly different
-
-        # BATCH
-        # (0, 1, 0)    batch t0 = 0
-        # (2, 5, 4.3)
-        # (2, 3, 6.5)  batch tn = 6.5
-
         for u, v, event_time in data:
             u, v = to_long(u, v) # cast to int for indexing
             event_intensity += self.beta - self.get_dist(event_time, u, v)
-
-        # Random sample nodes, create block e.g 6x6
-        # if batch size = 10
-        # then 50 non-links
 
         triu_samples = torch.randperm(self.n_node_pairs)[:self.node_pair_samples]
         for idx in triu_samples:

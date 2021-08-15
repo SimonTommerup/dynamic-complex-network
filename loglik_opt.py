@@ -12,21 +12,20 @@ torch.pi = torch.tensor(torch.acos(torch.zeros(1)).item()*2)
 
 # Create dynamical system with constant velocity
 ns_gt = nodespace.NodeSpace()
-ns_gt.beta = 7.5
-ns_gt.alpha = 0.1
+ns_gt.beta = 8.0
+ns_gt.alpha = 0.125
 
-z_gt = np.array([[-6, 0], [6.,1.]])
-v_gt = np.array([[1,0.], [-1,0.]])
-
-
+z_gt = np.array([[-6.0, 0.1], [6.0,1.0]])
+v_gt = np.array([[0.9,0.2], [-0.9,-0.2]])
 a_gt = np.array([[0.,0.], [0.,0.]])
+
+
 ns_gt.init_conditions(z_gt, v_gt, a_gt)
 
 # Simulate event time data set for the two nodes
 t = np.linspace(0, 15)
 rmat = nhpp_mod.root_matrix(ns_gt) 
 mmat = nhpp_mod.monotonicity_mat(ns_gt, rmat)
-
 
 nhppmat = nhpp_mod.nhpp_mat(ns=ns_gt, time=t, root_matrix=rmat, monotonicity_matrix=mmat)
 
@@ -36,7 +35,7 @@ nhppmat = nhpp_mod.nhpp_mat(ns=ns_gt, time=t, root_matrix=rmat, monotonicity_mat
 data_set = nhpp_mod.get_entry(nhppmat, u=0, v=1) # event times
 
 #%%
-len(data_set)
+print("n_events:", len(data_set))
 
 #%%
 
@@ -82,8 +81,9 @@ class SmallNet(nn.Module):
         self.pdist = nn.PairwiseDistance(p=2) # euclidean
     
     def step(self, t):
-        self.z = self.z0[:,:] + self.v0[:,:]*t + 0.5*self.a0[:,:]*t**2
-        return self.z
+        #self.z = self.z0[:,:] + self.v0[:,:]*t + 0.5*self.a0[:,:]*t**2
+        #return self.z
+        return self.z0[:,:] + self.v0[:,:]*t + 0.5*self.a0[:,:]*t**2
 
     def get_sq_dist(self, t, u, v):
         z = self.step(t)
@@ -113,13 +113,11 @@ class SmallNet(nn.Module):
     def forward(self, data, weight=1e3):
         eps = 1e-7
         event_intensity = 0.
+
         for event_time in data:
             event_intensity += torch.log(self.lambda_fun(event_time, u=0, v=1) + eps)
-
+             
         non_event_intensity = self.eval_integral(self.z0, self.v0, self.T, self.alpha, self.beta)
-
-        if torch.isnan(event_intensity) or torch.isnan(non_event_intensity):
-            debug=True
 
         return event_intensity - weight*non_event_intensity
 

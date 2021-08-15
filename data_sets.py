@@ -10,8 +10,8 @@ class SnapDataSet(Dataset):
     def __init__(self, dataset_file_path):
         self.data_file_path = dataset_file_path
         self.data_frame = pd.read_csv(self.data_file_path)
-        self.sources = [s for s in self.data_frame["u"]]
-        self.destinations = [d for d in self.data_frame["i"]]
+        self.sources = [s-1 for s in self.data_frame["u"]]
+        self.destinations = [d-1 for d in self.data_frame["i"]]
         self.timestamps = [t for t in self.data_frame["ts"]]
 
         self.unique_sources = self.unique(self.sources)
@@ -57,6 +57,20 @@ class MITDataSet(Dataset):
     
     def unique(self, nodes):
         return set(nodes)
+
+class RadoslawData(Dataset):
+    def __init__(self, numpydata):
+        super().__init__()
+        self.data = torch.from_numpy(numpydata)
+    
+    def __len__(self):
+        return len(self.data)
+        
+    def __getitem__(self, index, col=None):
+        return self.data[index]
+    
+    def get_column(self, index, col):
+        return self.data[index][col]
 
 class SyntheticData(Dataset):
     def __init__(self, numpydata):

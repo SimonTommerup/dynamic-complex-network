@@ -102,6 +102,36 @@ def time_to_monotonicity(time, roots, monotonicity):
             ttm.append(monotonicity[cur_m])
     return ttm
 
+def new_upperbounds(ns, u, v, time, roots):
+    idx = 0
+    if len(roots)>0:
+        lambda_arr = []
+        while idx < len(time)-1:
+            start_t, end_t = time[idx], time[idx+1]
+            roots_in_interval = roots[np.logical_and(start_t<roots, roots<end_t)]
+            if len(roots_in_interval) > 0:
+                check_points = [start_t, *roots_in_interval, end_t]
+            else:
+                check_points = [start_t, end_t]
+            
+            lambda_values = [ns.lambda_sq_fun(c, u, v) for c in check_points]
+            arg_check = np.argmax(lambda_values)
+            lambda_arr.append(np.max(lambda_values))
+            idx += 1
+    else:
+        lambda_arr = []
+        while idx < len(time)-1:
+            cur_lambda = ns.lambda_sq_fun(time[idx], u, v)
+            next_lambda = ns.lambda_sq_fun(time[idx+1], u, v)
+            lambda_arr.append(np.max([cur_lambda, next_lambda]))
+            idx += 1
+
+    for idx, val in enumerate(lambda_arr):
+        if val == 0: 
+            lambda_arr[idx] = 1e-100
+
+    return np.array(lambda_arr)
+
 def upperbounds(ns, u, v, time, roots, time_to_monotonicity):
     beta = ns.beta
     lambda_arr = []
@@ -139,6 +169,10 @@ def upperbounds(ns, u, v, time, roots, time_to_monotonicity):
                 lambda_arr.append(lambda_cur_t)
 
             idx += 1
+    
+    for idx, val in enumerate(lambda_arr):
+        if val == 0: 
+            lambda_arr[idx] = 1e-100
 
     lambda_arr = np.array(lambda_arr)
     return lambda_arr
@@ -194,11 +228,11 @@ def nhpp_mat(ns, time, root_matrix, monotonicity_matrix):
         m = monotonicity_matrix[u,v]
 
         # map time to monotonicity
-        t2m = time_to_monotonicity(time, roots=r, monotonicity=m) 
+        #t2m = time_to_monotonicity(time, roots=r, monotonicity=m) 
         # find upperbounds for all time intervals
-        ubl = upperbounds(ns, u, v, time, roots=r, time_to_monotonicity=t2m)
-        if (u==0 and v==7):
-            var=True
+        #ubl = upperbounds(ns, u, v, time, roots=r, time_to_monotonicity=t2m)
+
+        ubl = new_upperbounds(ns, u, v, time, roots=r)
         # simulate nhpp
         nhpp_sim = nhpp(ns, u, v, time=time, upperbounds=ubl) 
 

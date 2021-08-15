@@ -3,7 +3,7 @@ import nhpp_mod
 import torch
 import os
 from sklearn.datasets import make_blobs
-import smallnet_eucliddist as smallnet
+import smallnet_sqdist as smallnet
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
@@ -36,6 +36,59 @@ def compare_intensity_rates(model, nodespace, node_u, node_v, path, training_dat
     restrain = []
     print("Plot train")
     for ti in plot_t[0]:
+        gttrain.append(nodespace.lambda_sq_fun(ti, node_u, node_v))
+        restrain.append(model.lambda_sq_fun(ti, node_u, node_v))
+    
+    full_gt = []
+    for ti in full_time:
+        full_gt.append(nodespace.lambda_sq_fun(ti, node_u, node_v))
+    
+    gttest = []
+    restest = []
+    print("Plot test")
+    for ti in plot_t[1]:
+        gttest.append(nodespace.lambda_sq_fun(ti, node_u, node_v))
+        restest.append(model.lambda_sq_fun(ti, node_u, node_v))
+
+    fig, ax = plt.subplots(nrows=1, ncols=2)
+    ax[0].plot(plot_t[0], restrain, color="red", label="est")
+    ax[0].plot(plot_t[0], gttrain, color="blue", label="gt")
+    ax[0].set_ylabel("Intensity")
+    ax[0].set_xlabel("Time")
+
+    #ax[0].set_yscale("log")
+    ax[0].legend()
+    ax[0].set_title("Train")
+    ax[1].plot(plot_t[1], restest, color="red", label="est")
+    ax[1].plot(plot_t[1],gttest, color="blue", label="gt")
+    #ax[1].set_yscale("log")
+    ax[1].set_ylabel("Intensity")
+    ax[1].set_xlabel("Time")
+    ax[1].legend()
+    ax[1].set_title("Test")
+    plt.tight_layout()
+    plt.show()
+
+
+def compare_intensity_rates_acc(model, nodespace, node_u, node_v, path, training_data, test_data):
+    model.load_state_dict(torch.load(path))
+    model.eval()
+
+    state_dict = model.state_dict()
+    print("Beta", state_dict["beta"])
+    # train_t = get_times(training_data)
+    # test_t = get_times(test_data)
+
+    train_t = np.linspace(0, training_data[-1][2])
+    test_t = np.linspace(test_data[0][2], test_data[-1][2])
+    full_time = np.linspace(0, test_data[-1][2])
+
+    plot_t = [train_t, test_t]
+
+    gttrain = []
+    restrain = []
+    print("Plot train")
+    for ti in plot_t[0]:
         gttrain.append(nodespace.lambda_fun(ti, node_u, node_v))
         restrain.append(model.lambda_fun(ti, node_u, node_v))
     
@@ -50,20 +103,23 @@ def compare_intensity_rates(model, nodespace, node_u, node_v, path, training_dat
         gttest.append(nodespace.lambda_fun(ti, node_u, node_v))
         restest.append(model.lambda_fun(ti, node_u, node_v))
 
-    fig, ax = plt.subplots(nrows=1, ncols=3)
+    fig, ax = plt.subplots(nrows=1, ncols=2)
     ax[0].plot(plot_t[0], restrain, color="red", label="est")
     ax[0].plot(plot_t[0], gttrain, color="blue", label="gt")
+    ax[0].set_ylabel("Intensity")
+    ax[0].set_xlabel("Time")
+
     #ax[0].set_yscale("log")
     ax[0].legend()
     ax[0].set_title("Train")
     ax[1].plot(plot_t[1], restest, color="red", label="est")
     ax[1].plot(plot_t[1],gttest, color="blue", label="gt")
     #ax[1].set_yscale("log")
+    ax[1].set_ylabel("Intensity")
+    ax[1].set_xlabel("Time")
     ax[1].legend()
     ax[1].set_title("Test")
-    ax[2].plot(full_time, full_gt, color="blue", label="gt")
-    ax[2].set_title("Only GT")
-    ax[2].legend()
+    plt.tight_layout()
     plt.show()
 
 def compare_intensity_rates_no_path(model, nodespace, node_u, node_v, training_data, test_data):

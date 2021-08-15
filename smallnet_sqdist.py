@@ -168,8 +168,10 @@ def single_batch_train_track_grads(net, lr, training_data):
 
     # for p in net.parameters():
     #     p.grad = p.grad / batch_size
-    net.z0.grad = net.z0.grad / batch_size
-    net.beta.grad = net.beta.grad / (batch_size*net.n_points)
+    #clip_value = 30.0 
+    #torch.nn.utils.clip_grad_norm_(net.parameters(), clip_value)
+    #net.z0.grad = net.z0.grad / batch_size
+    #net.beta.grad = net.beta.grad / (batch_size*net.n_points)
 
     bgrad = torch.mean(torch.abs(net.beta.grad.clone()))
     zgrad = torch.mean(torch.abs(net.z0.grad.clone()))
@@ -293,10 +295,10 @@ def batch_train_track_mse(res_gt, track_nodes, net, n_train, train_batches, test
             res_train = []
             res_test = []
             for ti in np.linspace(0, tn_train):
-                res_train.append(net.lambda_fun(ti, track_nodes[0], track_nodes[1]))
+                res_train.append(net.lambda_sq_fun(ti, track_nodes[0], track_nodes[1]))
             
             for ti in np.linspace(tn_train, tn_test):
-                res_test.append(net.lambda_fun(ti, track_nodes[0], track_nodes[1]))
+                res_test.append(net.lambda_sq_fun(ti, track_nodes[0], track_nodes[1]))
             
             res_train = torch.tensor(res_train)
             res_test = torch.tensor(res_test)
@@ -367,15 +369,16 @@ def infer_beta(n_points, training_data):
 
 
 class SmallNet(nn.Module):
-    def __init__(self, n_points, init_beta):
+    def __init__(self, n_points, init_beta, non_intensity_weight):
         super().__init__()
         self.beta = nn.Parameter(torch.tensor([[init_beta]]))
-        self.z0 = nn.Parameter(torch.rand(size=(n_points,2))*0.5) # HALF RAND !!!
-        self.v0 = nn.Parameter(torch.rand(size=(n_points,2))*0.5) # HALF RAND !!!
+        self.z0 = nn.Parameter(torch.rand(size=(n_points,2))*0.5) 
+        self.v0 = nn.Parameter(torch.rand(size=(n_points,2))*0.5) 
         self.a0 = torch.zeros(size=(n_points,2))
         self.n_points = n_points
         self.ind = torch.triu_indices(row=self.n_points, col=self.n_points, offset=1)
         self.pdist = nn.PairwiseDistance(p=2) # euclidean
+        self.weight = non_intensity_weight
 
     def step(self, t):
         self.z = self.z0[:,:] + self.v0[:,:]*t + 0.5*self.a0[:,:]*t**2
@@ -412,6 +415,18 @@ class SmallNet(nn.Module):
         n = v[i,1] - v[j,1]
         return -torch.sqrt(torch.pi)*torch.exp(((-b**2 + beta)*m**2 + 2*a*b*m*n - n**2*(a**2 - beta))/(m**2 + n**2))*(torch.erf(((m**2 + n**2)*t0 + a*m + b*n)/torch.sqrt(m**2 + n**2)) - torch.erf(((m**2 + n**2)*tn + a*m + b*n)/torch.sqrt(m**2 + n**2)))/(2*torch.sqrt(m**2 + n**2))
 
+    def riemann_sum(self, i, j, t0, tn, n_samples):
+        # https://secure.math.ubc.ca/~pwalls/math-python/integration/riemann-sums/
+        x = torch.linspace(t0.item(), tn.item(), n_samples+1)
+        x_mid = (x[:-1]+x[1:])/2
+        dx = (tn - t0) / n_samples
+        rsum = torch.zeros(size=(1,1))
+
+        for x_i in x_mid:
+            rsum += self.lambda_sq_fun(x_i, i, j) * dx
+        
+        return rsum
+
     def monte_carlo_integral(self, i, j, t0, tn, n_samples):
         sample_times = np.random.uniform(t0, tn, n_samples)
         int_lambda = 0.
@@ -424,21 +439,21 @@ class SmallNet(nn.Module):
 
         return int_lambda
 
-    def forward(self, data, t0, tn, weight=1):
+    def forward(self, data, t0, tn):
         event_intensity = 0.
         non_event_intensity = 0.
         for u, v, event_time in data:
             u, v = to_long(u, v) # cast to int for indexing
             event_intensity += self.beta - self.get_sq_dist(event_time, u, v)
 
-        # for u, v in zip(self.ind[0], self.ind[1]):
-        #     non_event_intensity += self.evaluate_integral(u, v, t0, tn, self.z0, self.v0, beta=self.beta)
-        
         for u, v in zip(self.ind[0], self.ind[1]):
-            non_event_intensity += self.monte_carlo_integral(u, v, t0, tn, n_samples=10)
+            non_event_intensity += self.evaluate_integral(u, v, t0, tn, self.z0, self.v0, beta=self.beta)
         
-        log_likelihood = event_intensity - weight*non_event_intensity
-        ratio = event_intensity / (weight*non_event_intensity)
+        # for u, v in zip(self.ind[0], self.ind[1]):
+        #    non_event_intensity += self.riemann_sum(self, u, v, t0, tn, n_samples=10)
+
+        log_likelihood = event_intensity - self.weight*non_event_intensity
+        ratio = event_intensity / (self.weight*non_event_intensity)
 
         return log_likelihood, ratio
 

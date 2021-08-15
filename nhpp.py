@@ -101,7 +101,7 @@ def time_to_monotonicity(time, roots, monotonicity):
     return ttm
 
 
-def new_upperbounds(ns, u, v, time, roots):
+def upperbounds(ns, u, v, time, roots):
     idx = 0
     if len(roots)>0:
         lambda_arr = []
@@ -131,48 +131,7 @@ def new_upperbounds(ns, u, v, time, roots):
 
     return np.array(lambda_arr)
 
-def correct_upperbounds(ns, u, v, time, roots, time_to_monotonicity):
-    beta = ns.beta
-    lambda_arr = []
-    mon = time_to_monotonicity
-    rcount=0
-    idx = 0
-
-    if len(mon)==0:
-        while idx < len(time)-1:
-            cur_lambda = ns.lambda_fun(time[idx], u, v)
-            next_lambda = ns.lambda_fun(time[idx+1], u, v)
-            lambda_arr.append(np.maximum(cur_lambda, next_lambda))
-            idx += 1
-    else:
-        while idx < len(time)-1:
-
-            if mon[idx] != mon[idx + 1]:
-                lambda_root = ns.lambda_fun(roots[rcount], u, v)
-                max_lambda = lambda_root
-
-                if mon[idx] == "dec":
-                    lambda_cur_t = ns.lambda_fun(time[idx], u, v)
-                    lambda_next_t = ns.lambda_fun(time[idx+1], u, v)
-                    max_lambda = np.maximum(lambda_cur_t, lambda_next_t)
-
-                lambda_arr.append(max_lambda)
-                rcount += 1
-            
-            elif mon[idx] == "inc":
-                lambda_next_t = ns.lambda_fun(time[idx+1], u, v)
-                lambda_arr.append(lambda_next_t)
-
-            elif mon[idx] == "dec":
-                lambda_cur_t = ns.lambda_fun(time[idx], u, v)
-                lambda_arr.append(lambda_cur_t)
-
-            idx += 1
-
-    lambda_arr = np.array(lambda_arr)
-    return lambda_arr
-
-def upperbounds(ns, u, v, time, roots, time_to_monotonicity):
+def old_upperbounds(ns, u, v, time, roots, time_to_monotonicity):
     beta = ns.beta
     lambda_arr = []
     mon = time_to_monotonicity
@@ -275,8 +234,27 @@ def nhpp_mat(ns, time, root_matrix, monotonicity_matrix):
         #t2m = time_to_monotonicity(time, roots=r, monotonicity=m) 
         # find upperbounds for all time intervals
         #ubl = upperbounds(ns, u, v, time, roots=r, time_to_monotonicity=t2m)
-        ubl = new_upperbounds(ns, u, v, time, roots=r)
+        ubl = upperbounds(ns, u, v, time, roots=r)
         # simulate nhpp
+        nhpp_sim = nhpp(ns, u, v, time=time, upperbounds=ubl) 
+
+        nhpp_mat[u,v] = nhpp_sim
+    
+    return nhpp_mat
+
+def nhpp_mat_sampled(ns, samples, time, root_matrix):
+    beta = ns.beta
+    n_points = len(ns.z0)
+    ind = np.triu_indices(n_points, k=1)
+    nhpp_mat = np.zeros(shape=(n_points, n_points), dtype=object)
+
+    for idx, sample_idx in enumerate(samples):
+        u, v = ind[0][sample_idx], ind[1][sample_idx]
+        if (idx+1) % 50 == 0:
+            print(f"Simulating: Node pair {idx+1} of {len(samples)}")
+
+        r = root_matrix[u,v]
+        ubl = upperbounds(ns, u, v, time, roots=r)
         nhpp_sim = nhpp(ns, u, v, time=time, upperbounds=ubl) 
 
         nhpp_mat[u,v] = nhpp_sim

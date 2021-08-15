@@ -13,36 +13,42 @@ from matplotlib.collections import PatchCollection
 
 #plt.style.use("dark_background")
 
-# initialize system
+# # initialize system
+# ns = NodeSpace()
+# n_clusts = 3
+# points_in_clusts = [7, 7, 7]
+# n_points = sum(points_in_clusts)
+# centers = [[-6,0], [0,6], [8,-6]]
+# radius = [1.5,1.5,1.5]
+# v = [[1,0], [0,-1], [-1,1]]
+# a =  [[0,-0.1], [0.1,0], [0,-0.1]]
+# z0 = ns.init_clusters(n_clusts, points_in_clusts, centers, radius)
+# v0, a0 = ns.init_dynamics(n_clusts, points_in_clusts, v, a)
+# ns.init_conditions(z0, v0, a0)
 ns = NodeSpace()
-n_clusts = 3
-points_in_clusts = [7, 7, 7]
-n_points = sum(points_in_clusts)
-centers = [[-6,0], [0,6], [8,-6]]
-radius = [1.5,1.5,1.5]
-v = [[1,0], [0,-1], [-1,1]]
-a =  [[0,-0.1], [0.1,0], [0,-0.1]]
-z0 = ns.init_clusters(n_clusts, points_in_clusts, centers, radius)
-v0, a0 = ns.init_dynamics(n_clusts, points_in_clusts, v, a)
-ns.init_conditions(z0, v0, a0)
+z_gt = np.array([[-3, 1.], [-3., -1.], [3.,1.], [3.,-1.]])
+v_gt = np.array([[2.0,-2.0], [2.0,2.0], [-2.0,-2.0], [-2.0, 2.0]])
+a_gt = np.array([[-0.5,0.5], [-0.5,-0.5], [0.5,0.5], [0.5, -0.5]])
+n_points=len(z_gt)
+ns.init_conditions(z_gt, v_gt, a_gt)
 
 # beta and alpha: lambda = exp(beta - alpha * dist)
 ns.beta = 5
-ns.alpha = 1
 
 t = np.linspace(0, 15)
 
 #%%
 #selected_node_tups = [(0,7), (8, 20), (1, 9), (3,19)]
-selected_node_tups = [(0,7)]
+selected_node_tups = [(0,1), (2,3)]
 selected_node_list = [n for tup in selected_node_tups for n in tup]
 selected_node_ind = [True if val in selected_node_list else False for val in range(n_points)]
 other_node_ind = [not val for val in selected_node_ind]
 
 #fig, axtop, axes = animframe(2,2,np.linspace(0,16), selected_node_tups)
-fig, axtop, axes = animframe(1,1,np.linspace(0,16), selected_node_tups)
+fig, axtop, axes = animframe(1,2, selected_node_tups)
 #colors = ["indianred", "tan", "mediumseagreen", "royalblue"]
-colors = ["indianred"]
+colors = ["indianred", "tan"]
+#colors = ["indianred"]
 selected_points = []
 for idx, tup in enumerate(selected_node_tups):
     selected_point = axtop.scatter([],[])
@@ -141,4 +147,4 @@ t1 = time.time()
 anim = animation.FuncAnimation(fig, update, fargs=[t, intensities, selected_points, other_points, lines, legend], init_func=init,frames=len(t),interval=1e3, blit=True)
 anim.save('roots-report.mp4', dpi=500, fps=10, extra_args=['-vcodec', 'libx264'])
 anim
-print("Elapsed animation time (s): ", time.time() - t1)
+#print("Elapsed animation time (s): ", time.time() - t1)
