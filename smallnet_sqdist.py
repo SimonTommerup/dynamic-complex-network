@@ -6,6 +6,7 @@ import compare_rates
 import numpy as np
 import torch.nn as nn
 
+# USES SQUARE EUCLIDEAN DISTANCE
 
 torch.pi = torch.tensor(torch.acos(torch.zeros(1)).item()*2)
 
